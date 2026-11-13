@@ -1,3 +1,4 @@
+import os
 import logging
 import warnings
 from datetime import datetime
@@ -678,14 +679,14 @@ class UCOptimalSolution:
     def plot_link_capa_saturation(self, link_capacities: dict[str, float], year: int, climatic_year: int,
                                   start_horizon: datetime, output_tag: str = None, n_time_blocks: int = 4,
                                   saturation_threshold: float = 0.999,
-                                  time_label_mode: Literal["blocks", "dates"] = "blocks"):
+                                  time_label_mode: Literal["diurnal", "blocks", "dates"] = "diurnal"):
         """
         Plot a 3-level sunburst showing transmission link capacity saturation.
 
         Levels:
             1. Link
             2. Saturation direction
-            3. Time block
+            3. Time block (diurnal time slice by default)
 
         Parameters
         ----------
@@ -700,38 +701,62 @@ class UCOptimalSolution:
         output_tag :
             On output folder, to be more explicit
         n_time_blocks :
-            Number of temporal aggregation blocks. Ex: if 4, then number saturation occurrences will be considered for
-            blocks [0AM, 6AM], [6AM, 0PM], [0PM, 6PM], [6PM, 0AM next day]
+            Number of temporal aggregation blocks. Ex: if 4 and time_label_mode="diurnal",
+            then saturation occurrences will be considered for daily blocks
+            [00h-06h], [06h-12h], [12h-18h], [18h-24h]
         saturation_threshold :
-            Saturation threshold as a fraction of nominal capacity.
+            Saturation threshold as a fraction of nominal capacity (e.g. 0.999).
         time_label_mode :
-            "blocks" -> Block 1, ..., Block N
-            "dates"  -> Explicit time interval labels
+            "diurnal" -> daily time slots [00h-06h], ..., [18h-24h]
+            "blocks"  -> Block 1, ..., Block N
+            "dates"   -> Explicit time interval labels
         """
         logging.info('Plot link capacity saturation (stat. aggregated view)')
         df_link_flow_opt_direct = self.link_flow_direct
 
-        if len(df_link_flow_opt_direct) == 0:
-            raise ValueError("Link flow df is empty (after UC optim.) -> plot not possible")
+        if df_link_flow_opt_direct is None or len(df_link_flow_opt_direct) == 0:
+            logging.warning("Link flow DataFrame is empty (no flow data after UC optimization). "
+                            "Skipping link capacity saturation plot.")
+            return
+
+        n_snapshots = len(df_link_flow_opt_direct)
+
+        if time_label_mode == "diurnal":
+            hour_edges = np.linspace(0, 24, n_time_blocks + 1, dtype=int)
+            if isinstance(df_link_flow_opt_direct.index, pd.DatetimeIndex):
+                hours = df_link_flow_opt_direct.index.hour.values
+            else:
+                try:
+                    dt_index = pd.to_datetime(df_link_flow_opt_direct.index)
+                    hours = dt_index.hour.values
+                except Exception:
+                    hours = np.arange(n_snapshots) % 24
+        elif time_label_mode in ("blocks", "dates"):
+            block_edges = np.linspace(0, n_snapshots, n_time_blocks + 1, dtype=int)
+        else:
+            raise ValueError(f"Unknown time_label_mode '{time_label_mode}', must be 'diurnal', 'blocks', or 'dates'.")
 
         records = []
 
-        n_snapshots = len(df_link_flow_opt_direct)
-        block_edges = np.linspace(
-            0,
-            n_snapshots,
-            n_time_blocks + 1,
-            dtype=int,
-        )
-
         for link_name, capacity in link_capacities.items():
+            if capacity is None or capacity <= 0:
+                continue
 
             if link_name not in df_link_flow_opt_direct.columns:
                 continue
 
             flow = df_link_flow_opt_direct[link_name]
 
-            origin_bus, destination_bus = get_bus_from_link_name(link_name=link_name)
+            bus_tuple = get_bus_from_link_name(link_name=link_name)
+            if bus_tuple is not None:
+                origin_bus, destination_bus = bus_tuple
+            else:
+                cleaned_link_name = link_name.split("_")[0]
+                if "-" in cleaned_link_name:
+                    parts = cleaned_link_name.split("-")
+                    origin_bus, destination_bus = parts[0], parts[1]
+                else:
+                    origin_bus, destination_bus = link_name, f"{link_name}_dest"
 
             sat_pos = flow >= saturation_threshold * capacity
             sat_neg = flow <= -saturation_threshold * capacity
@@ -742,37 +767,28 @@ class UCOptimalSolution:
             }
 
             for direction, sat_mask in directions.items():
-
                 for block_id in range(n_time_blocks):
-
-                    start = block_edges[block_id]
-                    end = block_edges[block_id + 1]
-
-                    block_mask = sat_mask.iloc[start:end]
-
-                    proportion_total_time = block_mask.sum() / n_snapshots
+                    if time_label_mode == "diurnal":
+                        h_start = hour_edges[block_id]
+                        h_end = hour_edges[block_id + 1]
+                        hour_mask = (hours >= h_start) & (hours < h_end)
+                        block_mask = sat_mask.values & hour_mask
+                        proportion_total_time = block_mask.sum() / n_snapshots
+                        time_label = f"{h_start:02d}h-{h_end:02d}h"
+                    else:
+                        start = block_edges[block_id]
+                        end = block_edges[block_id + 1]
+                        block_mask = sat_mask.iloc[start:end]
+                        proportion_total_time = block_mask.sum() / n_snapshots
+                        if time_label_mode == "blocks":
+                            time_label = f"Block {block_id + 1}"
+                        else:
+                            start_ts = df_link_flow_opt_direct.index[start]
+                            end_ts = df_link_flow_opt_direct.index[end - 1]
+                            time_label = f"{start_ts:%Y-%m-%d} → {end_ts:%Y-%m-%d}"
 
                     if proportion_total_time == 0:
                         continue
-
-                    if time_label_mode == "blocks":
-                        time_label = f"Block {block_id + 1}"
-
-                    elif time_label_mode == "dates":
-
-                        start_ts = df_link_flow_opt_direct.index[start]
-                        end_ts = df_link_flow_opt_direct.index[end - 1]
-
-                        time_label = (
-                            f"{start_ts:%Y-%m-%d}"
-                            f" → "
-                            f"{end_ts:%Y-%m-%d}"
-                        )
-
-                    else:
-                        raise ValueError(
-                            "time_label_mode must be 'blocks' or 'dates'."
-                        )
 
                     records.append(
                         {
@@ -786,7 +802,9 @@ class UCOptimalSolution:
         sunburst_df = pd.DataFrame(records)
 
         if sunburst_df.empty:
-            raise ValueError("No saturation detected.")
+            logging.info("No transmission link capacity saturation detected (flows <= threshold * capacity). "
+                         "Skipping saturation plot.")
+            return
 
         fig = px.sunburst(
             sunburst_df,
@@ -803,16 +821,27 @@ class UCOptimalSolution:
             title="Transmission Link Saturation Breakdown",
         )
 
-        fig.write_image(
-            get_output_figure(
-                fig_name=FigNamesPrefix.link_capa_saturation,
-                country="europe",
-                year=year,
-                climatic_year=climatic_year,
-                start_horizon=start_horizon,
-                output_tag=output_tag,
-            )
+        output_png_filepath = get_output_figure(
+            fig_name=FigNamesPrefix.link_capa_saturation,
+            country="europe",
+            year=year,
+            climatic_year=climatic_year,
+            start_horizon=start_horizon,
+            output_tag=output_tag,
         )
+
+        # Save interactive HTML figure
+        output_html_filepath = f"{os.path.splitext(output_png_filepath)[0]}.html"
+        fig.write_html(output_html_filepath)
+        logging.info(f"Link capacity saturation interactive plot saved to {format_relative_path_for_log(path=output_html_filepath)}")
+
+        # Attempt PNG image export (if kaleido is installed)
+        try:
+            fig.write_image(output_png_filepath)
+            logging.info(f"Link capacity saturation PNG plot saved to {format_relative_path_for_log(path=output_png_filepath)}")
+        except Exception as e:
+            logging.debug(f"Static PNG export of link capacity saturation skipped ({e}). "
+                          f"Interactive HTML is available at {output_html_filepath}")
 
     def save_decisions_to_csv(self, year: int, climatic_year: int, start_horizon: datetime,
                               rename_snapshot_col: bool = True, toy_model_output: bool = False,

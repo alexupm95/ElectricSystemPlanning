@@ -45,6 +45,7 @@ EUR_JSON_PARAM_TYPES_FOR_CHECK = {EuropeJsonParamNames.extra_params: CheckerName
                                   EuropeJsonParamNames.failure_power_capa: CheckerNames.is_float,
                                   EuropeJsonParamNames.interco_capas_tb_overwritten: CheckerNames.is_dict_str_int,
                                   EuropeJsonParamNames.mode: CheckerNames.is_str,
+                                  EuropeJsonParamNames.plot_link_capa_saturation: CheckerNames.is_bool,
                                   EuropeJsonParamNames.selected_climatic_year: CheckerNames.is_int,
                                   EuropeJsonParamNames.selected_target_year: CheckerNames.is_int,
                                   EuropeJsonParamNames.team: CheckerNames.is_str,
