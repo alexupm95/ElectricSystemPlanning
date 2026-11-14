@@ -88,13 +88,13 @@ consumption (pumping, charging) and "State-of-Charge" (water/battery level) in *
 **Based on the numeric results obtained for each of the simulated configurations you can start "designing" (i.e. sizing the production capacities) your own country** (if in "solo" mode)/the European system ("Europe" mode). Consider different:
 * **(very key!) capacity values** for your production units:
   * You can proceed in two ways: 
-    1) **Choosing a sub-selection of production types available in ERAA data**. By default, if the only applied operation is this selection, capacity values of year 2025 in ERAA will be used (as if no investment done).
+    1) **Choosing a sub-selection of production types available in ERAA data**.
     
        Ex: if this sub-selection does not contain "nuclear" while it is available in ERAA data in 2025, you will test the case without nuclear asset in your country.
   
-    2) FOR THE PRODUCTION TYPE AVAILABLE IN ERAA DATA, modify their capacity values. 
+    2) FOR THE PRODUCTION TYPE AVAILABLE IN ERAA DATA AND SELECTED IN YOUR STUDY, **modify their capacity values**.  
 
-       N.B. (i) For the specific case of stock-like assets, only the POWER capacity value can be modified; the ENERGY one is obtained proportionally applying the same storage time constant as in ERAA data (ratio of column "energy_capacity" over "power_capacity_injection" in ERAA capacity files, e.g. [generation-capa_2025_france.csv](../../data/ERAA_2023-2/generation_capas/generation-capa_2025_france.csv)). (ii) The logic applied here is that sub-selection of production types (of item a.) is prioritary over capacity modification; if "nuclear" production type capacity is modified without being the list of sub-selected production types, a warning will be obtained indicating that the provided modification will be useless. 
+       N.B. (i) By default, if you don't modify the capacity values, capacity values of year 2025 in ERAA will be used (as if no investment done). (ii) For the specific case of stock-like assets, only the POWER capacity value can be modified; the ENERGY one is obtained proportionally applying the same storage time constant as in ERAA data (ratio of column "energy_capacity" over "power_capacity_injection" in ERAA capacity files, e.g. [generation-capa_2025_france.csv](../../data/ERAA_2023-2/generation_capas/generation-capa_2025_france.csv)). (iii) The logic applied here is that sub-selection of production types (of item a.) is prioritary over capacity modification; if "nuclear" production type capacity is modified without being the list of sub-selected production types, a warning will be obtained indicating that the provided modification will be useless. 
     
        Ex: if setting nuclear capacity to 40 000MW in France, you will test the case with this capacity instead of 61 761MW (cf. [generation-capa_2025_france.csv](../../data/ERAA_2023-2/generation_capas/generation-capa_2025_france.csv)). 
     
