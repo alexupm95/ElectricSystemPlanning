@@ -94,7 +94,7 @@ consumption (pumping, charging) and "State-of-Charge" (water/battery level) in *
   
     2) FOR THE PRODUCTION TYPE AVAILABLE IN ERAA DATA, modify their capacity values. 
 
-       N.B. For the specific case of stock-like assets, only the POWER capacity value can be modified; the ENERGY one is obtained proportionally applying the same storage time constant as in ERAA data (ratio of column "energy_capacity" over "power_capacity_injection" in ERAA capacity files, e.g. [generation-capa_2025_france.csv](../../data/ERAA_2023-2/generation_capas/generation-capa_2025_france.csv)).
+       N.B. (i) For the specific case of stock-like assets, only the POWER capacity value can be modified; the ENERGY one is obtained proportionally applying the same storage time constant as in ERAA data (ratio of column "energy_capacity" over "power_capacity_injection" in ERAA capacity files, e.g. [generation-capa_2025_france.csv](../../data/ERAA_2023-2/generation_capas/generation-capa_2025_france.csv)). (ii) The logic applied here is that sub-selection of production types (of item a.) is prioritary over capacity modification; if "nuclear" production type capacity is modified without being the list of sub-selected production types, a warning will be obtained indicating that the provided modification will be useless. 
     
        Ex: if setting nuclear capacity to 40 000MW in France, you will test the case with this capacity instead of 61 761MW (cf. [generation-capa_2025_france.csv](../../data/ERAA_2023-2/generation_capas/generation-capa_2025_france.csv)). 
     
