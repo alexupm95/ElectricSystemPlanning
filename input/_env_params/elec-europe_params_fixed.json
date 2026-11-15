@@ -118,7 +118,7 @@
       "carrier": "biomass",
       "p_min_pu": 0,
       "p_max_pu": 1,
-      "marginal_cost": 0,
+      "marginal_cost": 40,
       "efficiency": 1,
       "committable": "false"
     },
@@ -127,7 +127,7 @@
       "p_min_pu": 0,
       "p_max_pu": 1,
       "efficiency": 0.9,
-      "marginal_cost": 50,
+      "marginal_cost": 35,
       "committable": "true"
     },
     "dsr": {
@@ -149,14 +149,14 @@
       "p_min_pu": 0,
       "p_max_pu": 1,
       "efficiency": 0.5,
-      "marginal_cost": 70,
+      "marginal_cost": 56,
       "committable": "true"
     },
     "hydro_pondage": {
       "carrier": "hydro",
       "p_min_pu": 0,
       "p_max_pu": 1,
-      "marginal_cost": 0.1,
+      "marginal_cost": 0.4,
       "committable": "false"
     },
     "hydro_pump_storage_closed_loop": {
@@ -164,7 +164,7 @@
       "p_min_pu": -1.02236,
       "p_max_pu": 1,
       "cyclic_state_of_charge": "true",
-      "marginal_cost": 0.1,
+      "marginal_cost": 0.4,
       "committable": "false"
     },
     "hydro_pump_storage_open_loop": {
@@ -172,7 +172,7 @@
       "p_min_pu": -0.86796,
       "p_max_pu": 1,
       "cyclic_state_of_charge": "true",
-      "marginal_cost": 0.1,
+      "marginal_cost": 0.4,
       "committable": "false"
     },
     "hydro_reservoir": {
@@ -186,6 +186,7 @@
       "p_min_pu": 1,
       "p_max_pu": 1,
       "efficiency": 1,
+      "marginal_cost": 0.4,
       "committable": "false"
     },
     "nuclear": {
@@ -200,7 +201,7 @@
       "carrier": "oil",
       "p_min_pu": 0,
       "p_max_pu": 1,
-      "marginal_cost": 30,
+      "marginal_cost": 147,
       "committable": "true"
     },
     "others_fatal": {
@@ -226,6 +227,7 @@
       "carrier": "wind",
       "p_min_pu": 0,
       "efficiency": 1,
+      "marginal_cost": 0.2,
       "committable": "false"
     },
     "wind_onshore": {
