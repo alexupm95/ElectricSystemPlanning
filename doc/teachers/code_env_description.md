@@ -180,7 +180,15 @@ Example (enriched versus student one):
 }
 ```
 
-### C.2.3) On additional - "fixed" information that are provided in input folder
+### C.2.3) Use "demand-adders"
+
+Adding files *demand-adder_{year}_{country}.csv*, ERAA demand data can be modified. ATTENTION:
+* These files must be in [demand](../../input/long_term_uc/optional/demand) folder
+* With name *demand-adder_{year}_{country}.csv*
+* With same format and columns as demand_{year}_{country}.csv files in folder [demand](../../data/ERAA_2023-2/demand). N.B. Only climatic_year column can be removed; in this case it will be replaced by climatic year selected in current UC run
+* Only values correspnding to current UC period (start, end) will be used in these files.
+
+### C.2.4) On additional - "fixed" information that are provided in input folder
 
 **(TO BE FINALIZED)**
 

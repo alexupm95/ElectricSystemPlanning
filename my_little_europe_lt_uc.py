@@ -109,7 +109,10 @@ def get_needed_eraa_data(uc_run_params: UCRunParams, eraa_data_descr: ERAADatase
                                     aggreg_prod_types_def=eraa_data_descr.aggreg_prod_types_def)
     eraa_dataset.complete_data()
 
-    # TODO: apply demand adder, if data provided
+    # apply demand adder, if data available for that
+    eraa_dataset.apply_demand_adder(files=uc_run_params.demand_adder_files,
+                                    selected_climatic_year=uc_run_params.selected_climatic_year,
+                                    uc_period=(uc_run_params.uc_period_start, uc_run_params.uc_period_end))
 
     logging.info(f'{TITLE_LOG_SEP} II)2) Check data coherence {TITLE_LOG_SEP}')
     logging.info('Get generation units data, from both ERAA data - read just before '

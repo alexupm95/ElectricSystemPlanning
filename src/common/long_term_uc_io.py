@@ -233,6 +233,22 @@ def get_demand_adder_optional_folder() -> str:
                               )
 
 
+def get_year_and_country_from_demand_adder_file(filename: str) -> tuple[int, str]:
+    """
+    Extract year and country from a filename of the form 'demand-adder_{year}_{country}.csv'.
+    """
+    pattern = r"^demand-adder_(\d{4})_([A-Za-z]+)\.csv$"
+
+    match = re.match(pattern, filename)
+    if not match:
+        raise ValueError(f"Invalid filename: {filename}")
+
+    year = int(match.group(1))
+    country = match.group(2)
+
+    return year, country
+
+
 def get_demand_adder_files(target_year: int, countries: list[str]) -> list[str]:
     """
     Get demand-adder files from input/optional/demand folder
