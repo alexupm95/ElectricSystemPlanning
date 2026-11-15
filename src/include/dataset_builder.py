@@ -750,9 +750,12 @@ class PypsaModel:
                 capa_unit = "MW"
             # values associated to carrier "ac" at this stage are corresponding to failure fictive assets
             per_carrier_generators_capa["failure"] = per_carrier_generators_capa.pop("ac")
+            total_capa = sum(per_carrier_generators_capa.values())
+            total_capa_wo_failure = total_capa - per_carrier_generators_capa["failure"]
             log_msg += (f"\nGenerator capacities (in {capa_unit}) by carrier:"
                         f"\n{dict_to_str(d=per_carrier_generators_capa, nbers_with_spaces=True, decimals=2)}\n-> total "
-                        f"of {format_with_spaces(number=sum(per_carrier_generators_capa.values()), decimals=2)}")
+                        f"of {format_with_spaces(number=total_capa, decimals=2)} "
+                        f"(resp. {format_with_spaces(number=total_capa_wo_failure, decimals=2)} without failure units)")
         log_msg += "\n" + 21 * "="
         return log_msg
 
