@@ -36,11 +36,11 @@ per production type.
   are obtained from [elec-europe_params_fixed.json](../../input/_env_params/elec-europe_params_fixed.json) (and can be overwritten 
 by the ones of [fuel_sources_to-be_modif.json](../../input/long_term_uc/fuel_sources_to-be_modif.json), if 
 present in the environment)
-- [technology.json](../../data/fuel_sources/technology.json) 
+- [technology_datacrunch.json](../../data/fuel_sources/technology_datacrunch.json) 
   - Contains main technico-eco infos about the production types used in this environment. 
   - It is used in the "data crunch" session based on [data_crunch.ipynb](../../data_crunch.ipynb) - see Section XXX.
 
-    N.B. [technology.json](../../data/fuel_sources/technology.json) (for data crunch) and [elec-europe_params_fixed.json](../../input/_env_params/elec-europe_params_fixed.json)
+    N.B. [technology_datacrunch.json](../../data/fuel_sources/technology_datacrunch.json) (for data crunch) and [elec-europe_params_fixed.json](../../input/_env_params/elec-europe_params_fixed.json)
 (for UC simulation) values are coherent; in particular the formula used to obtain <span style="color:#32B032; font-weight:bold">marginal_cost</span>
 values from detailed parameters is XXX.
 
@@ -61,6 +61,19 @@ Containing parameters to be changed by students to play with the different scrip
 Following are **additional info versus the ones detailed in** [European-system_tutorial.md](../long_term_uc/European-system_tutorial.md) - in Sec. II.1):
 
 - [elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json):  
+    - (optional) <span style="color:#32B032; font-weight:bold">state_of_charge_init_pu</span>: to set an initial SoC per stock-like asset, add this key to <span style="color:#32B032; font-weight:bold">extra_params</span> dictionary, under the form {(stock-like) prod unit fulle name: initial SoC} (<span style="color:#257cbd; font-weight:bold">dictionary of floats in [0, 1]</span>). Default: 0.8 will be applied in UC model.
+   
+      Ex:
+  
+      ```json
+      {
+        "state_of_charge_init_pu": {
+          "fra_hydro_reservoir": 0.8,
+          "ger_hydro_reservoir": 0.2,
+        }
+      }
+      ```
+      N.B. The trigrams of the countries have to be used in prod unit full name 
     - (optional) "<span style="color:#32B032; font-weight:bold">co2_emis_price</span>": to add a cost associated to CO2 emissions
     in UC objective function (<span style="color:#257cbd; font-weight:bold">non-negative float</span>, €/tCO2eq.). Default: 0€/tCO2eq.
   
@@ -74,8 +87,19 @@ Following are **additional info versus the ones detailed in** [European-system_t
    whereas variables x_{j-k} and x_{j+k'} are provided. In the present model, this situation typically arises for spillage variables, 
    which are undefined for some production units e.g., DSR units and batteries. By contrast, the mapping between constraints is complete 
    and well-defined for all indices between 1 and the number of modeled constraints.
+    - (optional) "<span style="color:#32B032; font-weight:bold">save_link_capa_dual_vars</span>": save dual variables associated to link capacity constraints in a .csv file (in [data](../../output/long_term_uc/data)).
+  
+      Default: false (no such files obtained in [data](../../output/long_term_uc/data)).
+    - (optional) "<span style="color:#32B032; font-weight:bold">save_custom_const_dual_vars</span>": idem, but for "custom" constraints, the "sumprod" ones described below - and used currently only to set upper bounds on CO2 emissions.
+  
+      Default: false (no such files obtained in [data](../../output/long_term_uc/data)).
+  
+      N.B. The obtained file *sumprod-const-duals_{ty}_cy{cy}_{uc run start}.csv* has two columns: (i) Name of the constraint, with a suffix joining the "initials" of the countries associated to the considered constraint (first letter of the country, excepting "ip" for Iberian-Peninsula and "it" for Italy), excepting if whole Europe is considered then "_eur" is used; (ii) Value of the dual variable (a float).
+  
     - (optional) "<span style="color:#32B032; font-weight:bold">plot_link_capa_saturation</span>": plot sunburst with 3-levels (1. non-oriented link, 2. direction, 3. period of the day)
-    to illustrate in an aggregate manner the saturation of link capacities. Default: do not plot (and save associated file)
+    to illustrate in an aggregate manner the saturation of link capacities. Default: do not plot (and save associated file).
+  
+      Default: false (no such files obtained in [figures](../../output/long_term_uc/figures)).
 
 ## C.2) On optional functionalities
 
@@ -156,7 +180,15 @@ Example (enriched versus student one):
 }
 ```
 
-### C.2.3) On additional - "fixed" information that are provided in input folder
+### C.2.3) Use "demand-adders"
+
+Adding files *demand-adder_{year}_{country}.csv*, ERAA demand data can be modified. ATTENTION:
+* These files must be in [demand](../../input/long_term_uc/optional/demand) folder
+* With name *demand-adder_{year}_{country}.csv*
+* With same format and columns as demand_{year}_{country}.csv files in folder [demand](../../data/ERAA_2023-2/demand). N.B. Only climatic_year column can be removed; in this case it will be replaced by climatic year selected in current UC run
+* Only values correspnding to current UC period (start, end) will be used in these files.
+
+### C.2.4) On additional - "fixed" information that are provided in input folder
 
 **(TO BE FINALIZED)**
 
@@ -199,26 +231,43 @@ Cf. parameters in [functional_params](../../src/functional_params), file by file
 - [plot_params.json](../../src/functional_params/plot_params.json): a few parameters for (color) palette 
 definition - possibly using a standard one (e.g., the one of Eco2mix), linestyles, markers, orders of curves. 
 It can be done on different dimensions (production types, zones, years, etc.)
+
+<br>
+
 - [usage_params.json](../../src/functional_params/usage_params.json): idem, to allow (or not)/parametrize some 
 operations for the students. Per parameter:
-  - <span style="color:#32B032; font-weight:bold">allow_adding_interco_capas</span>: possible to add some interconnection (pair of zones) w.r.t. the list in ERAA data?
+  - <span style="color:#32B032; font-weight:bold">allow_adding_interco_capas</span>: possible to add some interconnection (pair of zones) w.r.t. the list in ERAA data? 
+    
+    Default: false
   - <span style="color:#32B032; font-weight:bold">allow_overwriting_eraa_interco_capa_vals</span>: possible to overwrite interco. capa values of ERAA? 
-  (specifying values in [input/long_term_uc/elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json))
-  - <span style="color:#32B032; font-weight:bold">allow_manually_adding_demand</span>: possible to add supplementary demand in addition to ERAA one? 
+  (specifying values in [input/long_term_uc/elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json)). 
+    
+    Default: false
+  - <span style="color:#32B032; font-weight:bold">allow_manually_adding_demand</span>: possible to add supplementary demand in addition to ERAA one?  
+    
+    Default: false
   
     N.B. Not functional currently; could be used to integrate "exogeneous" Demand-Side-Response 
   (e.g. based on Time-of-Use tariff, set independently of the UC solution)
-  - <span style="color:#32B032; font-weight:bold">allow_manually_adding_generators</span>: ??
+  - <span style="color:#32B032; font-weight:bold">allow_manually_adding_generators</span>: ?? 
+    
+    Default: false
     
     N.B. Idem
   - <span style="color:#32B032; font-weight:bold">apply_cf_techno_breakthrough</span>: apply some "breakthrough" on a technology associated to CF data. In this case, 
-  CF values will be applied an increasing transformation to represent this improvement
+  CF values will be applied an increasing transformation to represent this improvement. 
+    
+    Default: false
   - <span style="color:#32B032; font-weight:bold">apply_per_country_json_file_params</span>: dictionary with following values, indicating for each of the scripts if run
-  parameters for a given country must be obtained rom individual country/global european json input file 
+  parameters for a given country must be obtained rom individual country/global european json input file: 
     - <span style="color:#32B032; font-weight:bold">data_analysis</span>: false 
     - <span style="color:#32B032; font-weight:bold">monozone_toy_uc_model</span>: true
     - <span style="color:#32B032; font-weight:bold">multizones_uc_model</span>: true
-  Q: still useful? (in multizones_uc_model case, behaviour dependently on the chosen mode solo/europe)
+  
+    Q: still useful? (in multizones_uc_model case, behaviour dependently on the chosen mode solo/europe)
+  - <span style="color:#32B032; font-weight:bold">apply_per_prod_unit_init_soc</span>: allow to apply per prod unit init SoC values (in Eur. JSON file to be modified); otherwise common default value set when writing PyPSA model (currently 0.8). 
+  
+    Default: false
   - <span style="color:#32B032; font-weight:bold">get_optional_const_from_data_folder</span>: get data for optional constraints from data folder (available only to the 
   teachers) or input one (in which students can do some modifications)? Can be either a boolean, or a dictionary to 
   specifiy this property per type of constraint; in this latter case available keys are "hydro", "max_co2_emissions", 
@@ -228,7 +277,9 @@ operations for the students. Per parameter:
   - <span style="color:#32B032; font-weight:bold">res_cf_stress_test_cy</span>: CY to be used for RES CF stress test; for which associated data must be found in 
   the files provided in <span style="color:#32B032; font-weight:bold">res_cf_stress_test_folder</span> 
   - <span style="color:#32B032; font-weight:bold">use_first_year_capas_as_default</span>: use first year available (in ERAA data) to set generation capas by default, 
-  i.e. before applying values set in input JSON per-country files
-  - <span style="color:#32B032; font-weight:bold">log_level</span>
+  i.e. before applying values set in input JSON per-country files. 
+    
+    Default: true.
+  - <span style="color:#32B032; font-weight:bold">log_level</span>.
 
-    Default: XXX
+    Default: info.

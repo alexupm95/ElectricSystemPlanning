@@ -230,6 +230,17 @@ def build_timeseries_df(data: dict[str, np.ndarray], dates, key_col_name: str = 
     return df[cols_order]
 
 
+def sum_df_values_by_keys(df1: pd.DataFrame, df2: pd.DataFrame, key_cols: list[str], value_col: str) -> pd.DataFrame:
+    """
+    Sum values from df1 and df2 for identical key columns.
+    """
+    return (
+        pd.concat([df1, df2], ignore_index=True)
+        .groupby(key_cols, as_index=False)[value_col]
+        .sum()
+    )
+
+
 if __name__ == '__main__':
     data = {
         'date': pd.date_range('2025-11-10', periods=3, freq='D'),

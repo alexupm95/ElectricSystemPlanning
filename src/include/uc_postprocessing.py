@@ -1,5 +1,6 @@
 import os
 import logging
+import os
 import warnings
 from datetime import datetime
 from itertools import product
@@ -10,12 +11,14 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Literal, Union, Optional
 import json
 import pypsa
+from linopy import Model as linopy_model
 import xarray
 from matplotlib import pyplot as plt
 import plotly.express as px
 
 from src.common.constants.countries import set_country_trigram
 from src.common.constants.links import set_link_name, REVERSE_SIGN, get_bus_from_link_name
+from src.common.constants.optimisation import selec_custom_const_names
 from src.common.constants.prod_types import STOCK_LIKE_PROD_TYPES, ProdTypeNames, add_suffix_to_storage_unit_col, \
     get_prod_type_from_unit_name, set_gen_unit_name, get_country_from_unit_name, PT_ORDER_IN_DATA_OUTPUT, \
     STORAGE_COL_SUFFIX, rm_country_from_prod_unit_name
@@ -23,7 +26,7 @@ from src.common.constants.pypsa_params import PypsaOptimConstNames
 from src.common.logger import format_relative_path_for_log
 from src.common.long_term_uc_io import FigNamesPrefix, get_output_figure, get_figure_file_named, get_opt_power_file, \
     get_storage_opt_dec_file, get_marginal_prices_file, get_link_flow_opt_dec_file, get_uc_summary_file, \
-    get_link_capa_dual_vars_file
+    get_link_capa_dual_vars_file, get_custom_const_dual_vars_file
 from src.common.plot_params import PlotParams
 from src.utils.basic_utils import format_with_spaces, get_default_values, dict_to_str
 from src.utils.df_utils import rename_df_columns, sort_out_cols_with_zero_values, is_column_constant, \
@@ -316,6 +319,14 @@ def duals_to_link_dual_dict(duals: xarray.DataArray) -> dict[str, np.ndarray]:
     return dict(zip(duals.coords[link_dim].values, duals.values, strict=True))
 
 
+def check_dual_avail(pypsa_model: linopy_model):
+    if not hasattr(pypsa_model, "dual") or len(pypsa_model.dual) == 0:
+        raise RuntimeError(
+            "No dual values available. "
+            "Make sure the optimization was run with assign_all_duals=True."
+        )
+
+
 # TODO: check typing
 class UCOptimalSolution:
     def __init__(self, network_name: str):
@@ -328,7 +339,8 @@ class UCOptimalSolution:
         self.link_flow_reverse: pd.DataFrame = None  # to the second bus (destination)
         # dual variables associated to supply-demand equilibrium const. - interpreted as marginal prices
         self.sde_dual: pd.DataFrame = None
-        self.link_capa_dual: dict[str, np.array] = None  # {link name: vector with all values, one per snapshot}
+        self.link_capa_dual: dict[str, np.ndarray] = None  # {link name: vector with all values, one per snapshot}
+        self.custom_const_dual: dict[str, np.ndarray] = None
 
     def get_prod_var_opt(self, network: pypsa.Network):
         self.prod = network.generators_t.p
@@ -345,19 +357,23 @@ class UCOptimalSolution:
     def get_sde_dual_var_opt(self, network: pypsa.Network):
         self.sde_dual = network.buses_t.marginal_price
 
-    def get_link_capa_dual_var_opt(self, network: pypsa.Network) -> dict[str, float]:
-
+    def get_link_capa_dual_var_opt(self, network: pypsa.Network):
         model = network.model
-
-        if not hasattr(model, "dual") or len(model.dual) == 0:
-            raise RuntimeError(
-                "No dual values available. "
-                "Make sure the optimization was run with assign_all_duals=True."
-            )
+        check_dual_avail(model)
 
         link_ub_constraint = model.constraints[PypsaOptimConstNames.link_ub]
         duals = link_ub_constraint.dual
         self.link_capa_dual = duals_to_link_dual_dict(duals)
+
+    def get_custom_const_dual_var_opt(self, network: pypsa.Network):
+        model = network.model
+        check_dual_avail(model)
+
+        custom_const_names = selec_custom_const_names(constraint_names=list(model.constraints))
+        logging.debug(f"Get dual variables for following 'custom' constraints: {custom_const_names}")
+        self.custom_const_dual = {}
+        for const_name in custom_const_names:
+            self.custom_const_dual[const_name] = model.constraints[const_name].dual
 
     def plot_prod(self, plot_params_agg_pt: PlotParams, country: str, year: int, climatic_year: int,
                   start_horizon: datetime, toy_model_output: bool = False, rm_all_zero_curves: bool = True,
@@ -928,6 +944,19 @@ class UCOptimalSolution:
                                                  value_col_name="dual_variable", date_col=OUTPUT_DATE_COL)
         df_link_capa_duals.to_csv(link_capa_duals_csv_file, index=False)
 
+    def save_custom_const_dual_vars_to_csv(self, year: int, climatic_year: int, start_horizon: datetime,
+                                           output_tag: str = None):
+        custom_const_dual_vars_file = get_custom_const_dual_vars_file(year=year, climatic_year=climatic_year,
+                                                                      start_horizon=start_horizon, output_tag=output_tag)
+        logging.info(f'Save custom constraint(s) {list(self.custom_const_dual)} dual variables to .csv file '
+                     f'{format_relative_path_for_log(path=custom_const_dual_vars_file)}')
+        data_to_csv = {"constraint": [], "dual_variable": []}
+        for const_name, dual_var in self.custom_const_dual.items():
+            data_to_csv["constraint"].append(const_name)
+            data_to_csv["dual_variable"].append(dual_var.item())
+        df_custom_const_duals = pd.DataFrame.from_dict(data_to_csv)
+        df_custom_const_duals.to_csv(custom_const_dual_vars_file, index=False)
+
     def get_prod_given_bus(self, bus_name: str) -> Optional[pd.DataFrame]:
         if self.prod is None:
             logging.warning(f'Optimal variable prod. df cannot be obtained for bus {bus_name}; '
@@ -1032,11 +1061,12 @@ class UCOptimalSolution:
         total_prod = sum(per_country_prod.values())
 
         # attention convert to GWh/M€ and int to get smaller values for synthesis. TODO: check CO2 emissions unit!
+        ens_conversion_factor = 1e-3
         cost_conversion_factor = 1e-6
         co2_emis_conversion_factor = 1e-3
         energy_conversion_factor = 1e-3
         return UCSummaryMetrics(
-            per_country_ens={c: int(val / 1e3) for c, val in per_country_ens.items()},
+            per_country_ens={c: val * ens_conversion_factor for c, val in per_country_ens.items()},
             per_country_n_failure_hours=per_country_n_failure_h,
             total_cost=int(total_cost * cost_conversion_factor),
             total_operational_cost=int(eur_total_ope_cost * cost_conversion_factor),

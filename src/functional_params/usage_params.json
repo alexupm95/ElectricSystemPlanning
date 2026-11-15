@@ -9,6 +9,7 @@
     "monozone_toy_uc_model": true,
     "multizones_uc_model": true
   },
+  "apply_per_prod_unit_init_soc": true,
   "get_optional_const_from_data_folder": {
     "hydro": true
   },

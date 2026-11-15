@@ -3,11 +3,10 @@ import os
 from datetime import datetime
 from typing import Dict, Tuple, Optional, Union, List
 import numpy as np
-import pandas as pd
 from scipy.optimize import linprog
 from scipy import sparse
 
-from src.common.constants.optimisation import CustomConstraintNames
+from src.utils.basic_utils import format_with_spaces
 
 TRIGRAM_TO_ZONE = {
     "fra": "france",
@@ -316,10 +315,14 @@ def relax_single_hydro_reservoir_bounds_lp(unit_name: str,
     total_slack_max = float(np.sum(delta_max_opt))
 
     if total_slack_min > 1.0 or total_slack_max > 1.0:
-        logging.info(
-            f"[Hydro Preprocessor] Unit '{unit_name}': relaxed Vmin by {total_slack_min:.1f} MWh "
-            f"and Vmax by {total_slack_max:.1f} MWh to guarantee feasibility."
-        )
+        n_decimals_log = 1
+        relaxed_log_msgs = []
+        for key, slack_tot in {"Vmin": total_slack_min, "Vmax": total_slack_max}.items():
+            if slack_tot > 1.0:
+                relaxed_log_msgs.append(
+                    f"{key} by {format_with_spaces(number=slack_tot, decimals=n_decimals_log)} MWh")
+        relaxed_msg = " and ".join(relaxed_log_msgs)
+        logging.info(f"[Hydro Preprocessor] Unit '{unit_name}': relaxed {relaxed_msg} to guarantee feasibility.")
 
     v_min_relaxed = v_min_mwh.copy()
     v_max_relaxed = v_max_mwh.copy()

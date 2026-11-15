@@ -16,11 +16,12 @@ import pypsa
 import matplotlib.pyplot as plt
 import re
 
-from src.common.constants.countries import set_country_trigram, is_country_trigram
+from src.common.constants.countries import set_country_trigram, is_country_trigram, COUNTRIES_INITIALS
 from src.common.constants.env_dirs import OutputFolderNames
 from src.common.constants.links import set_link_name, get_bus_from_link_name, set_per_origin_bus_links_msg
 from src.common.constants.optimisation import OptimSolvers, DEFAULT_OPTIM_SOLVER_PARAMS, SolverParams, \
-    OptimPbCharacteristics, OptimPbTypes, CustomConstraintDirection, ZoneAndTempProdSumConstraint, CustomConstraintNames
+    OptimPbCharacteristics, OptimPbTypes, CustomConstraintDirection, ZoneAndTempProdSumConstraint, \
+    CustomConstraintNames, set_sum_of_prod_const_name
 from src.common.constants.prod_types import get_country_from_unit_name, ProdTypeNames, PROD_TYPE_IN_LP, \
     get_prod_type_from_unit_name, set_per_bus_asset_msg
 from src.common.constants.pypsa_params import GEN_UNITS_PYPSA_PARAMS, PypsaOptimVarNames, PYPSA_TO_EXPLICIT_VAR_NAMES, \
@@ -145,15 +146,6 @@ def stack_per_storage_bound_as_xarray(per_gen_bound: Dict[str, np.ndarray], snap
             storage_dim: list(per_gen_bound),
         },
     )
-
-
-def set_sum_of_prod_const_name(const_type: str, temporal_granularity: str, direction: str) -> str:
-    # remove prefix (min/max) from constraint type
-    for prefix in ["min_", "max_"]:
-        if const_type.startswith(prefix):
-            const_type = const_type[len(prefix):]
-
-    return f"{const_type}_{temporal_granularity}_{direction}"
 
 
 def simplify_lp_elt_mapping(mapping: dict[str, str], snapshots: pd.DatetimeIndex, elt_type: str,
@@ -323,6 +315,8 @@ class PypsaModel:
 
                 # case of storage units, identified via the presence of max_hours param
                 if is_gen_unit_storage_data(gen_unit_data=pypsa_gen_unit_dict):
+                    energy_capa = (pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.power_capa]
+                                   * pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.max_hours])
                     if pypsa_gen_unit_dict.get(GEN_UNITS_PYPSA_PARAMS.soc_init, None) is None:
                         # initial SoC fixed to 80% statically here
                         if agg_info_over_cases:
@@ -330,9 +324,11 @@ class PypsaModel:
                         else:
                             logging.info(f'Default value set for {pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.name]} '
                                          f'init. SOC as {int(100 * default_init_soc_pu)}% of energy storage capa.')
-                        init_soc = (pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.power_capa]
-                                    * pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.max_hours] * 0.8)
+                        init_soc = 0.8 * energy_capa
                         pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.soc_init] = init_soc
+                    else:
+                        # value set in European input JSON file to be modified is in per-unit of energy capa.
+                        pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.soc_init] *= energy_capa
                     self.network.add('StorageUnit', bus=f'{country_bus_name}', **pypsa_gen_unit_dict)
                 else:
                     self.network.add('Generator', bus=f'{country_bus_name}', **pypsa_gen_unit_dict)
@@ -471,9 +467,15 @@ class PypsaModel:
             - (optional) name: of the constraint. Default: None
         """
         # TODO: make this method functional in the case of monthly const.
+        if set(prod_sum_const.countries) == set(COUNTRIES_INITIALS):  # Eur. constraint
+            countries_suffix = "_eur"
+        else:
+            countries_initials = [COUNTRIES_INITIALS[country] for country in prod_sum_const.countries]
+            countries_suffix = f"_{'-'.join(countries_initials)}"
+
         const_name = set_sum_of_prod_const_name(const_type=prod_sum_const.type,
                                                 temporal_granularity=prod_sum_const.temporal_granularity,
-                                                direction=prod_sum_const.direction)
+                                                direction=prod_sum_const.direction, countries_suffix=countries_suffix)
         logging.info(f'Add custom sum of prod constraints {const_name}')
         # countries selected for this constraint - using bus names (country trigrams) in PyPSA
         selec_countries = [get_country_bus_name(country=elt) for elt in prod_sum_const.countries]
@@ -901,6 +903,7 @@ class PypsaModel:
         # and dual variables - some of them "entering" into Linopy framework
         uc_opt_solution.get_sde_dual_var_opt(network=self.network)
         uc_opt_solution.get_link_capa_dual_var_opt(network=self.network)
+        uc_opt_solution.get_custom_const_dual_var_opt(network=self.network)
         return uc_opt_solution
 
     def get_opt_value(self, pypsa_resol_status: str) -> float:
