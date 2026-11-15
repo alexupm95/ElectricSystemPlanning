@@ -2,12 +2,11 @@
   "team": "germany",
   "selected_prod_types": {
     "germany": [
-      "oil"
+      "all"
     ]
   },
   "capacities_tb_overwritten": {
     "germany": {
-      "oil": 40000
     }
   }
 }
