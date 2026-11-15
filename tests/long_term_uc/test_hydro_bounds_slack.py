@@ -5,9 +5,16 @@ import sys
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 import numpy as np
+import pandas as pd
+import pypsa
 import pytest
 
-from src.include.hydro_bounds_preprocessor import relax_single_hydro_reservoir_bounds_lp
+from src.include.hydro_bounds_preprocessor import (
+    relax_single_hydro_reservoir_bounds_lp,
+    build_preprocessed_hydro_bounds_df,
+    export_preprocessed_hydro_bounds_to_csv,
+    preprocess_all_hydro_soc_bounds,
+)
 
 
 def test_hydro_bounds_slack_initial_soc_conflict():
@@ -144,3 +151,91 @@ def test_hydro_bounds_slack_bandwidth_enforcement():
 
     width = relaxed_max[0] - relaxed_min[0]
     assert width >= min_bandwidth - 1e-5
+
+
+def test_build_preprocessed_hydro_bounds_df():
+    """
+    Test that build_preprocessed_hydro_bounds_df formats weekly hydro levels
+    with columns zone;week;min_value;max_value matching the ERAA input structure.
+    """
+    n_ts = 336  # 2 weeks
+    dates = pd.date_range("1900-01-01 00:00:00", periods=n_ts, freq="h")
+    net = pypsa.Network(snapshots=dates)
+    net.add("Bus", "fra")
+    net.add("Bus", "ibe")
+    net.add("StorageUnit", "fra_hydro_reservoir", bus="fra", p_nom=1000, max_hours=10)
+    net.add("StorageUnit", "ibe_hydro_reservoir", bus="ibe", p_nom=2000, max_hours=10)
+
+    # Week 1 (t=0) and Week 2 (t=168)
+    soc_min = {
+        "fra_hydro_reservoir": np.zeros(n_ts),
+        "ibe_hydro_reservoir": np.zeros(n_ts),
+    }
+    soc_max = {
+        "fra_hydro_reservoir": np.ones(n_ts),
+        "ibe_hydro_reservoir": np.ones(n_ts),
+    }
+    soc_min["fra_hydro_reservoir"][0] = 0.320
+    soc_max["fra_hydro_reservoir"][0] = 0.790
+    soc_min["fra_hydro_reservoir"][168] = 0.306
+    soc_max["fra_hydro_reservoir"][168] = 0.772
+
+    soc_min["ibe_hydro_reservoir"][0] = 0.278
+    soc_max["ibe_hydro_reservoir"][0] = 0.725
+    soc_min["ibe_hydro_reservoir"][168] = 0.278
+    soc_max["ibe_hydro_reservoir"][168] = 0.734
+
+    df = build_preprocessed_hydro_bounds_df(
+        network=net,
+        soc_min_processed_pu=soc_min,
+        soc_max_processed_pu=soc_max,
+        decimal_digits=3
+    )
+
+    assert list(df.columns) == ["zone", "week", "min_value", "max_value"]
+    assert set(df["zone"].unique()) == {"france", "iberian-peninsula"}
+    assert list(df[df["zone"] == "france"]["week"]) == [1, 2]
+    assert df[(df["zone"] == "france") & (df["week"] == 1)]["min_value"].values[0] == pytest.approx(0.320)
+    assert df[(df["zone"] == "france") & (df["week"] == 1)]["max_value"].values[0] == pytest.approx(0.790)
+
+
+def test_export_preprocessed_hydro_bounds_to_csv(tmp_path):
+    """
+    Test that export_preprocessed_hydro_bounds_to_csv creates a valid CSV file
+    with ';' separator, correct headers and rows.
+    """
+    n_ts = 168  # 1 week
+    dates = pd.date_range("1900-01-01 00:00:00", periods=n_ts, freq="h")
+    net = pypsa.Network(snapshots=dates)
+    net.add("Bus", "sca")
+    net.add("StorageUnit", "sca_hydro_reservoir", bus="sca", p_nom=1000, max_hours=10)
+
+    soc_min = {"sca_hydro_reservoir": np.zeros(n_ts)}
+    soc_max = {"sca_hydro_reservoir": np.ones(n_ts)}
+    soc_min["sca_hydro_reservoir"][0] = 0.240
+    soc_max["sca_hydro_reservoir"][0] = 0.879
+
+    out_file = str(tmp_path / "PECD-hydro-weekly-reservoir-min-max-levels_preprocessed.csv")
+    df = export_preprocessed_hydro_bounds_to_csv(
+        network=net,
+        soc_min_processed_pu=soc_min,
+        soc_max_processed_pu=soc_max,
+        output_filepath=out_file,
+        decimal_digits=3
+    )
+
+    assert os.path.exists(out_file)
+    with open(out_file, "r") as f:
+        lines = f.readlines()
+
+    assert lines[0].strip() == "zone;week;min_value;max_value"
+    assert lines[1].strip() == "scandinavia;1;0.240;0.879"
+
+    # Verify reload with pandas using ';' separator
+    loaded_df = pd.read_csv(out_file, sep=";")
+    assert len(loaded_df) == 1
+    assert loaded_df.iloc[0]["zone"] == "scandinavia"
+    assert loaded_df.iloc[0]["week"] == 1
+    assert loaded_df.iloc[0]["min_value"] == pytest.approx(0.240)
+    assert loaded_df.iloc[0]["max_value"] == pytest.approx(0.879)
+

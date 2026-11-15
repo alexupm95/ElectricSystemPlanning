@@ -37,7 +37,11 @@ from src.utils.basic_utils import (lexico_compar_str, rm_elts_with_none_val, rm_
 from src.utils.dir_utils import make_dir
 from src.utils.pypsa_utils import get_network_obj_value, from_xarray_to_dict
 from src.utils.serializer import array_serializer
-from src.include.hydro_bounds_preprocessor import preprocess_all_hydro_soc_bounds
+from src.include.hydro_bounds_preprocessor import (
+    preprocess_all_hydro_soc_bounds,
+    export_preprocessed_hydro_bounds_to_csv,
+    build_preprocessed_hydro_bounds_df,
+)
 
 
 def is_gen_unit_storage_data(gen_unit_data: dict) -> bool:
@@ -264,6 +268,8 @@ class PypsaModel:
     network: pypsa.Network = None
     uc_summary_metrics: UCSummaryMetrics = None  # UC summary metrics (ENS, nber of failure hours, costs...)
     optim_solver_params: SolverParams = None
+    preprocessed_hydro_soc_min_pu: Dict[str, np.ndarray] = None
+    preprocessed_hydro_soc_max_pu: Dict[str, np.ndarray] = None
     DEFAULT_CARRIER = 'ac'
 
     def init_pypsa_network(self, date_idx: pd.Index, date_range: pd.DatetimeIndex = None):
@@ -578,6 +584,9 @@ class PypsaModel:
                 n_ts=n_ts
             )
 
+        self.preprocessed_hydro_soc_min_pu = soc_min_pu
+        self.preprocessed_hydro_soc_max_pu = soc_max_pu
+
         # from PU to ABSOLUTE values of min/max SoC (ABSOLUTE values have to be used in PyPSA)
         soc_min = {asset_name: energy_capa[asset_name] * bound_pu for asset_name, bound_pu in soc_min_pu.items()}
         soc_max = {asset_name: energy_capa[asset_name] * bound_pu for asset_name, bound_pu in soc_max_pu.items()}
@@ -615,6 +624,23 @@ class PypsaModel:
                                                           storage_dim=storage_dim)
         self.network.model.add_constraints(hydro_soc_var_sel >= soc_min_array, name=CustomConstraintNames.hydro_soc_min)
         self.network.model.add_constraints(hydro_soc_var_sel <= soc_max_array, name=CustomConstraintNames.hydro_soc_max)
+
+    def save_preprocessed_hydro_bounds_to_csv(self, output_filepath: str,
+                                              decimal_digits: int = 3) -> Optional[pd.DataFrame]:
+        """
+        Export preprocessed weekly hydro reservoir bounds to CSV file with the same format as input.
+        """
+        if self.preprocessed_hydro_soc_min_pu is None:
+            logging.warning("No preprocessed hydro bounds stored on PypsaModel to export.")
+            return None
+
+        return export_preprocessed_hydro_bounds_to_csv(
+            network=self.network,
+            soc_min_processed_pu=self.preprocessed_hydro_soc_min_pu,
+            soc_max_processed_pu=self.preprocessed_hydro_soc_max_pu,
+            output_filepath=output_filepath,
+            decimal_digits=decimal_digits
+        )
 
     def add_hydro_extreme_gen_constraint(self, generation_min: Dict[str, np.ndarray],
                                          generation_max: Dict[str, np.ndarray], power_capa: Dict[str, float],

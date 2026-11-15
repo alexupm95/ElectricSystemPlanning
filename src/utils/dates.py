@@ -184,7 +184,7 @@ def set_period_starts(start_date: datetime, end_date: datetime, granularity: str
         # First Monday on or before start_date
         current = start_date - timedelta(days=start_date.weekday())
 
-        while current <= end_date:
+        while current < end_date:
             dates.append(current)
             current += timedelta(weeks=1)
 

@@ -508,16 +508,14 @@ class UCOptimalSolution:
                 df_soc_opt[col] /= capacity
 
             if hydro_soc_min is not None:
-                hydro_soc_min_plot = hydro_soc_min.copy()
-
-                for asset in hydro_soc_min_plot:
-                    hydro_soc_min_plot[asset] /= storage_const_soc_max[asset]
+                hydro_soc_min_plot = {}
+                for asset, val in hydro_soc_min.items():
+                    hydro_soc_min_plot[asset] = np.array(val, copy=True) / storage_const_soc_max[asset]
 
             if hydro_soc_max is not None:
-                hydro_soc_max_plot = hydro_soc_max.copy()
-
-                for asset in hydro_soc_max_plot:
-                    hydro_soc_max_plot[asset] /= storage_const_soc_max[asset]
+                hydro_soc_max_plot = {}
+                for asset, val in hydro_soc_max.items():
+                    hydro_soc_max_plot[asset] = np.array(val, copy=True) / storage_const_soc_max[asset]
 
         else:
             hydro_soc_min_plot = hydro_soc_min

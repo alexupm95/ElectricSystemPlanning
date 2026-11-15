@@ -329,8 +329,10 @@ def set_full_lt_uc_output_folder(folder_type: str = None, country: str = None, t
 
     if folder_type is not None:
         # data/fig subfolder, possibly with output tag to distinguish it from previous runs
-        if output_tag is not None:
+        if output_tag:
             per_type_subfolder = add_tag_to_output_folder(output_folder=folder_type, tag=output_tag)
+        else:
+            per_type_subfolder = folder_type
         folders_tb_join.append(per_type_subfolder)
     return str(Path(*folders_tb_join))
 
@@ -402,6 +404,15 @@ def get_link_capa_dual_vars_file(year: int, climatic_year: int, start_horizon: d
                                  output_tag: str = None) -> str:
     return get_csv_file_named(name='link-capa-duals', country=country, year=year, climatic_year=climatic_year,
                               start_horizon=start_horizon, output_tag=output_tag)
+
+
+def get_preprocessed_hydro_levels_file(year: int, climatic_year: int, start_horizon: datetime,
+                                       country: str = 'europe', toy_model_output: bool = False,
+                                       output_tag: str = None) -> str:
+    output_folder = set_full_lt_uc_output_folder(folder_type=OutputFolderNames.data, country=country,
+                                                 toy_model_output=toy_model_output, output_tag=output_tag)
+    make_dir(full_path=output_folder)
+    return os.path.join(output_folder, 'PECD-hydro-weekly-reservoir-min-max-levels_preprocessed.csv')
 
 
 def get_uc_summary_file(country: str, year: int, climatic_year: int, start_horizon: datetime,

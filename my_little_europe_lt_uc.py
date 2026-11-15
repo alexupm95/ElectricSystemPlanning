@@ -65,7 +65,11 @@ from src.common.error_msgs import infeas_debugging_hints_msg
 from src.common.fuel_sources import set_fuel_sources_from_raw_params_json, DUMMY_FUEL_SOURCES, FuelSource, \
     update_fuel_sources, get_fuel_sources_with_set_marg_cost, reset_fuel_sources_marginal_costs
 from src.common.logger import init_logger, stop_logger, deactivate_verbose_warnings, TITLE_LOG_SEP
-from src.common.long_term_uc_io import set_full_lt_uc_output_folder, get_demand_adder_files
+from src.common.long_term_uc_io import (
+    set_full_lt_uc_output_folder,
+    get_demand_adder_files,
+    get_preprocessed_hydro_levels_file,
+)
 from src.common.plot_params import PlotParamsKeysInJson
 from src.common.uc_run_params import UCRunParams
 from src.include.dataset import Dataset
@@ -244,6 +248,17 @@ def solve_pypsa_network_model(pypsa_model: PypsaModel, year: int, n_countries: i
 def save_data_and_fig_results(pypsa_model: PypsaModel, uc_run_params: UCRunParams,
                               result_optim_status: str) -> Optional[UCSummaryMetrics]:
     logging.info(f'{TITLE_LOG_SEP} V) Save data - at the optimum of UC problem - and plot graphs {TITLE_LOG_SEP}')
+
+    # Save preprocessed hydro bounds to CSV if present (available even in case of infeasibility for inspection)
+    if pypsa_model.preprocessed_hydro_soc_min_pu is not None:
+        preprocessed_hydro_file = get_preprocessed_hydro_levels_file(
+            year=uc_run_params.selected_target_year,
+            climatic_year=uc_run_params.selected_climatic_year,
+            start_horizon=uc_run_params.uc_period_start,
+            output_tag=uc_run_params.output_tag
+        )
+        pypsa_model.save_preprocessed_hydro_bounds_to_csv(output_filepath=preprocessed_hydro_file)
+
     pypsa_opt_resol_status = OPTIM_RESOL_STATUS.optimal
     # if optimal resolution status, save output data and plot associated figures
     if result_optim_status == pypsa_opt_resol_status:
@@ -407,7 +422,8 @@ def run(network_name: str = 'my little europe', solver_params: SolverParams = No
     fuel_sources = set_fuel_sources_from_raw_params_json()
 
     eraa_data_descr, uc_run_params = (
-        read_and_check_uc_run_params(phase_name=EnvPhaseNames.multizones_uc_model, usage_params=usage_params)
+        read_and_check_uc_run_params(phase_name=EnvPhaseNames.multizones_uc_model, usage_params=usage_params,
+                                     json_params_filepath=json_params_filepath)
     )
 
     if fixed_uc_run_params is not None:

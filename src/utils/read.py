@@ -136,8 +136,10 @@ def set_json_solver_params() -> dict:
     return check_and_load_json_file(json_file=get_json_solver_params_file(), file_descr='JSON solver params')
 
 
-def set_json_params_tb_modif() -> dict:
-    return check_and_load_json_file(json_file=get_json_params_tb_modif_file(), file_descr='JSON params to be modif.')
+def set_json_params_tb_modif(json_file: str = None) -> dict:
+    if json_file is None:
+        json_file = get_json_params_tb_modif_file()
+    return check_and_load_json_file(json_file=json_file, file_descr='JSON params to be modif.')
 
 
 def set_json_fuel_sources_tb_modif() -> Optional[dict]:
@@ -208,8 +210,9 @@ def read_usage_params() -> UsageParameters:
     return set_usage_params(json_usage_params_data=set_json_usage_params_data())
 
 
-def check_and_process_eur_json_tb_modified(json_data: dict):
-    json_file = get_json_params_tb_modif_file()
+def check_and_process_eur_json_tb_modified(json_data: dict, json_file: str = None):
+    if json_file is None:
+        json_file = get_json_params_tb_modif_file()
     # first check that keys are coherent
     json_data_keys = list(json_data)
     known_keys = get_default_values(obj=EuropeJsonParamNames)
@@ -237,11 +240,14 @@ def check_and_process_eur_json_tb_modified(json_data: dict):
     if extra_params_key in json_data:
         json_data |= json_data[extra_params_key]
         del json_data[extra_params_key]
+    json_data.setdefault(EuropeJsonParamNames.mode, "solo")
+    json_data.setdefault(EuropeJsonParamNames.team, None)
     return json_data
 
 
 def read_and_check_uc_run_params(phase_name: str, usage_params: UsageParameters,
-                                 get_only_eraa_data_descr: bool = False) \
+                                 get_only_eraa_data_descr: bool = False,
+                                 json_params_filepath: str = None) \
         -> tuple[ERAADatasetDescr, Optional[UCRunParams]]:
     """
     Read and check parameters for UC run - based on different JSON files (with only part of them that can be modified
@@ -250,11 +256,12 @@ def read_and_check_uc_run_params(phase_name: str, usage_params: UsageParameters,
     Eur. UC model)
     :param usage_params
     :param get_only_eraa_data_descr: used for the runner
+    :param json_params_filepath: optional explicit path to JSON params file
     """
     if get_only_eraa_data_descr:
         info_msg = 'Get ERAA data description parameters'
     else:
-        json_params_tb_modif_file = get_json_params_tb_modif_file()
+        json_params_tb_modif_file = json_params_filepath if json_params_filepath is not None else get_json_params_tb_modif_file()
         info_msg = (f'Read and check long-term UC parameters; the ones modified '
                     f'in file {format_relative_path_for_log(path=json_params_tb_modif_file)}')
     logging.info(info_msg)
@@ -270,9 +277,10 @@ def read_and_check_uc_run_params(phase_name: str, usage_params: UsageParameters,
     # Set countries data, applying data selection/overwriting based on JSON file with values to be modified
     countries_data, json_params_tb_modif = None, None
     if not get_only_eraa_data_descr:
-        json_params_tb_modif = set_json_params_tb_modif()
+        json_params_tb_modif = set_json_params_tb_modif(json_file=json_params_tb_modif_file)
         # check values in JSON params to be modif
-        json_params_tb_modif = check_and_process_eur_json_tb_modified(json_data=json_params_tb_modif)
+        json_params_tb_modif = check_and_process_eur_json_tb_modified(json_data=json_params_tb_modif,
+                                                                      json_file=json_params_tb_modif_file)
         chosen_mode = json_params_tb_modif[EuropeJsonParamNames.mode]
         mode_suffix = (" -> selection of production types and capacities of a country can be modified "
                        "from another {country_bis}.json file") if chosen_mode == "solo" else ""
