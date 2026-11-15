@@ -21,6 +21,10 @@ Usage:
     python main_runner.py --dry-run
     python main_runner.py json --dry-run
 
+    # Test/debug mode (fast 2-week simulation: 1900/1/1 to 1900/1/15):
+    python main_runner.py --test
+    python main_runner.py --test --dry-run
+
     # Execute only Europe 1 or Europe 2:
     python main_runner.py --europe europe1
     python main_runner.py --europe europe2
@@ -39,6 +43,11 @@ from typing import Dict, List, Optional
 
 from src.include_runner.investments_runner import (
     AVAILABLE_COUNTRIES,
+    DEFAULT_PERIOD_START,
+    DEFAULT_PERIOD_END,
+    TEST_PERIOD_START,
+    TEST_PERIOD_END,
+    resolve_simulation_period,
     parse_investment_file,
     parse_country_json_file,
     load_country_capacities,
@@ -55,6 +64,11 @@ from src.include_runner.investments_runner import (
     format_comparison_table,
     display_europe_comparison,
     save_comparison_results,
+    load_simulation_history,
+    compute_simulation_evolutions,
+    format_simulation_evolutions_table,
+    display_simulation_evolutions,
+    save_simulation_evolutions,
 )
 
 
@@ -64,7 +78,7 @@ def run_single_europe_simulation(
     period_start: str,
     period_end: str,
     dry_run: bool = False,
-    output_base_dir: str = "output/long_term_uc",
+    sim_output_base_dir: str = "output/long_term_uc",
 ) -> Optional[dict]:
     """
     Configure and execute simulation for one European mix, returning extracted metrics.
@@ -82,8 +96,10 @@ def run_single_europe_simulation(
         period_start=period_start,
         period_end=period_end,
     )
+    is_full_year = (period_start == DEFAULT_PERIOD_START and period_end == DEFAULT_PERIOD_END)
+    period_label = "full year period" if is_full_year else "simulation period"
     print(
-        f"      -> Global parameters: mode='europe', full year period [{period_start} - {period_end}] "
+        f"      -> Global parameters: mode='europe', {period_label} [{period_start} - {period_end}] "
         f"activated in elec-europe_params_to-be-modif.json"
     )
 
@@ -91,7 +107,7 @@ def run_single_europe_simulation(
         print(f"      [INFO] --dry-run active for {europe_name}: files updated, solver not launched.")
         return None
 
-    pattern = os.path.join(output_base_dir, "**", "uc-summary_*.json")
+    pattern = os.path.join(sim_output_base_dir, "**", "uc-summary_*.json")
     before_files = set(glob.glob(pattern, recursive=True))
 
     print(f"\n[RUN] Launching simulation for {europe_name.upper()} (my_little_europe_lt_uc.py)...")
@@ -103,7 +119,7 @@ def run_single_europe_simulation(
         print(f"\n[!] Simulation for {europe_name} failed with non-zero exit code ({return_code}).", file=sys.stderr)
         sys.exit(return_code)
 
-    summary_file = find_new_summary_file(before_files=before_files, output_base_dir=output_base_dir)
+    summary_file = find_new_summary_file(before_files=before_files, output_base_dir=sim_output_base_dir)
     if not summary_file or not os.path.isfile(summary_file):
         print(f"[!] Warning: No summary file found for {europe_name} run.")
         return None
@@ -123,7 +139,8 @@ def run_single_europe_simulation(
         return None
 
 
-def main():
+def build_parser() -> argparse.ArgumentParser:
+    """Build and return the argument parser for the collective runner."""
     parser = argparse.ArgumentParser(
         description="Collective Runner: collects student investments for all countries and executes European simulation(s)."
     )
@@ -151,14 +168,30 @@ def main():
         help="Update country .json files without executing the PyPSA simulation",
     )
     parser.add_argument(
+        "--test",
+        action="store_true",
+        help="Fast debug mode: simulate only a 2-week period ('1900/1/1' to '1900/1/15') for quick testing",
+    )
+    parser.add_argument(
         "--no-summary",
         action="store_true",
         help="Do not display the comparative summary table at the end of simulation",
     )
     parser.add_argument(
         "--output-dir",
-        default="output/long_term_uc",
-        help="Directory where comparison reports will be saved (default: 'output/long_term_uc')",
+        default="output/runner",
+        help="Directory where comparison reports and simulation history are saved (default: 'output/runner')",
+    )
+    parser.add_argument(
+        "--history-europe",
+        choices=["europe1", "europe2"],
+        default="europe1",
+        help="Europe configuration to track across historical simulations (default: 'europe1')",
+    )
+    parser.add_argument(
+        "--no-history",
+        action="store_true",
+        help="Do not display the simulation evolution history across successive runs",
     )
     parser.add_argument(
         "--period-start",
@@ -170,8 +203,19 @@ def main():
         default="1901/1/1",
         help="Simulation end date (default: '1901/1/1', full year)",
     )
+    return parser
 
+
+def main():
+    parser = build_parser()
     args = parser.parse_args()
+
+    # Resolve simulation period (full year vs. 2-week test period)
+    period_start, period_end = resolve_simulation_period(
+        is_test=args.test,
+        period_start=args.period_start,
+        period_end=args.period_end,
+    )
 
     # Determine source mode and input targets
     raw_targets = list(args.folder_or_files) if args.folder_or_files else []
@@ -224,6 +268,8 @@ def main():
 
     print("\n" + "=" * 76)
     print(f"   COLLECTIVE RUNNER FOR STUDENT INVESTMENTS - EUROPE MODE ({source_mode.upper()} SOURCE)")
+    if args.test:
+        print(f"   *** TEST / DEBUG MODE ACTIVATED: [{period_start} -> {period_end}] (2 WEEKS) ***")
     print("=" * 76)
     print(f"Detected Europe configuration(s): {', '.join(e.upper() for e in available_europes)}")
     for eur in available_europes:
@@ -242,20 +288,18 @@ def main():
         metrics_eur1 = run_single_europe_simulation(
             europe_name="europe1",
             country_capacities=grouped_capas["europe1"],
-            period_start=args.period_start,
-            period_end=args.period_end,
+            period_start=period_start,
+            period_end=period_end,
             dry_run=args.dry_run,
-            output_base_dir=args.output_dir,
         )
 
         # 2. Run Europe 2
         metrics_eur2 = run_single_europe_simulation(
             europe_name="europe2",
             country_capacities=grouped_capas["europe2"],
-            period_start=args.period_start,
-            period_end=args.period_end,
+            period_start=period_start,
+            period_end=period_end,
             dry_run=args.dry_run,
-            output_base_dir=args.output_dir,
         )
 
         if args.dry_run:
@@ -276,6 +320,8 @@ def main():
                 formatted_report=report_text,
                 output_dir=args.output_dir,
                 filename_prefix="comparison_europe1_vs_europe2",
+                metrics_eur1=metrics_eur1,
+                metrics_eur2=metrics_eur2,
             )
             print(f"\n[OK] Comparative summary successfully saved:")
             print(f"     -> Text report : {txt_file}")
@@ -289,10 +335,9 @@ def main():
         metrics = run_single_europe_simulation(
             europe_name=single_eur,
             country_capacities=grouped_capas[single_eur],
-            period_start=args.period_start,
-            period_end=args.period_end,
+            period_start=period_start,
+            period_end=period_end,
             dry_run=args.dry_run,
-            output_base_dir=args.output_dir,
         )
 
         if args.dry_run:
@@ -309,6 +354,24 @@ def main():
                 per_country_capacities=grouped_capas[single_eur],
                 summary_file_path=metrics["summary_file"],
             )
+
+    # 5. Simulation Evolution Tracking across successive runs (for target Europe, default: europe1)
+    if not args.dry_run and not args.no_history:
+        target_eur = args.history_europe
+        history = load_simulation_history(output_dir=args.output_dir, target_europe=target_eur)
+        if len(history) >= 2:
+            evol_data = compute_simulation_evolutions(history)
+            evol_table = format_simulation_evolutions_table(evol_data, target_europe=target_eur)
+            display_simulation_evolutions(evol_table)
+            hist_txt, hist_json = save_simulation_evolutions(
+                evolution_data=evol_data,
+                report_text=evol_table,
+                output_dir=args.output_dir,
+                target_europe=target_eur,
+            )
+            print(f"[i] Simulation evolution history saved to:")
+            print(f"    -> Text report : {hist_txt}")
+            print(f"    -> JSON metrics: {hist_json}\n")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,21 @@
+# Investment choices for France - Europe 2 (capacities in MW)
+country: france
+
+# Low-carbon & renewable generation (High RES + Storage mix)
+nuclear: 50000
+solar_pv: 45000
+wind_onshore: 35000
+wind_offshore: 15000
+
+# Hydro
+hydro_reservoir: 8500
+hydro_run_of_river: 4500
+hydro_pump_storage_closed_loop: 5000
+hydro_pump_storage_open_loop: 1000
+
+# Flexibility & Storage
+batteries: 6000
+dsr: 3500
+
+# Peaking thermal
+gas: 3000

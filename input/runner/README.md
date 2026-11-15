@@ -15,9 +15,12 @@ When files for both Europe 1 and Europe 2 are present, the runner:
 1. Runs the European simulation for **Europe 1**.
 2. Runs the European simulation for **Europe 2**.
 3. Displays a comprehensive **Comparative Dashboard** (Europe 1 vs Europe 2 with Δ and % differences) in the terminal.
-4. Saves the comparative results into:
-   - `output/long_term_uc/comparison_europe1_vs_europe2.txt` (human-readable report)
-   - `output/long_term_uc/comparison_europe1_vs_europe2.json` (structured metrics data)
+4. Saves the comparative results into `output/runner/`:
+   - `output/runner/comparison_europe1_vs_europe2_YYYYMMDD_HHMMSS.txt` (timestamped text report)
+   - `output/runner/comparison_europe1_vs_europe2_YYYYMMDD_HHMMSS.json` (timestamped structured metrics)
+   - `output/runner/comparison_europe1_vs_europe2_latest.txt` (latest text report)
+   - `output/runner/comparison_europe1_vs_europe2_latest.json` (latest structured metrics)
+5. Automatically tracks and displays the **Simulation Evolution History** across successive runs for Europe 1 and for each country (saved in `output/runner/history_evolutions_europe1.txt` and `.json`).
 
 ---
 

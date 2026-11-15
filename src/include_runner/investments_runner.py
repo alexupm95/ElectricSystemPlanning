@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Union
 
 from src.common.constants.countries import set_country_trigram
@@ -526,12 +527,42 @@ def write_country_json(country: str, capacities: Dict[str, float],
     return json_path
 
 
+DEFAULT_PERIOD_START: str = "1900/1/1"
+DEFAULT_PERIOD_END: str = "1901/1/1"
+TEST_PERIOD_START: str = "1900/1/1"
+TEST_PERIOD_END: str = "1900/1/15"  # 14 days / 2 weeks for fast debugging
+
+
+def resolve_simulation_period(
+    is_test: bool = False,
+    period_start: Optional[str] = None,
+    period_end: Optional[str] = None,
+) -> Tuple[str, str]:
+    """
+    Resolve the simulation start and end dates based on flags and parameters.
+
+    In test/debug mode (is_test=True):
+      - Defaults to a 2-week period (1900/1/1 to 1900/1/15).
+      - If a non-default period_start is provided, it is preserved.
+      - If a non-default period_end is provided, it is preserved.
+    In standard mode (is_test=False):
+      - Defaults to the full year (1900/1/1 to 1901/1/1).
+    """
+    if is_test:
+        start = period_start if (period_start and period_start != DEFAULT_PERIOD_START) else TEST_PERIOD_START
+        end = period_end if (period_end and period_end != DEFAULT_PERIOD_END) else TEST_PERIOD_END
+        return start, end
+
+    return period_start or DEFAULT_PERIOD_START, period_end or DEFAULT_PERIOD_END
+
+
 def update_europe_params(mode: str = "europe", team: Optional[str] = None,
-                         period_start: str = "1900/1/1", period_end: str = "1901/1/1",
+                         period_start: str = DEFAULT_PERIOD_START, period_end: str = DEFAULT_PERIOD_END,
                          europe_params_path: str = "input/long_term_uc/elec-europe_params_to-be-modif.json") -> None:
     """
-    Enforce and set 'mode' to 'europe', and configure the simulation period to the full year
-    ('1900/1/1' to '1901/1/1') in elec-europe_params_to-be-modif.json.
+    Enforce and set 'mode' to 'europe', and configure the simulation period
+    (by default full year '1900/1/1' to '1901/1/1', or test period '1900/1/1' to '1900/1/15')
+    in elec-europe_params_to-be-modif.json.
     The runner exclusively operates in European mode ('europe'). Solo mode is not supported for the runner.
     """
     if mode != "europe":
@@ -1145,22 +1176,389 @@ def display_europe_comparison(formatted_report: str) -> None:
 def save_comparison_results(
     comparison_data: dict,
     formatted_report: str,
-    output_dir: str = "output/long_term_uc",
+    output_dir: str = "output/runner",
     filename_prefix: str = "comparison_europe1_vs_europe2",
+    metrics_eur1: Optional[dict] = None,
+    metrics_eur2: Optional[dict] = None,
+    timestamp: Optional[datetime] = None,
 ) -> Tuple[str, str]:
     """
-    Save the comparative results to both a text file and a JSON file.
-    Returns:
-        (txt_filepath, json_filepath)
+    Save the comparative results to both a timestamped text file and a JSON file
+    in output_dir (default: output/runner/), and update latest pointer files.
     """
     os.makedirs(output_dir, exist_ok=True)
-    txt_path = os.path.join(output_dir, f"{filename_prefix}.txt")
-    json_path = os.path.join(output_dir, f"{filename_prefix}.json")
+    dt = timestamp or datetime.now()
+    ts_str = dt.strftime("%Y%m%d_%H%M%S")
+    ts_readable = dt.strftime("%Y-%m-%d %H:%M:%S")
+
+    # Enrich comparison data with metadata and raw Europe metrics for history tracking
+    enriched_data = dict(comparison_data)
+    enriched_data["timestamp"] = dt.isoformat()
+    enriched_data["timestamp_str"] = ts_readable
+    if metrics_eur1:
+        enriched_data["europe1_metrics"] = metrics_eur1
+    if metrics_eur2:
+        enriched_data["europe2_metrics"] = metrics_eur2
+
+    txt_filename = f"{filename_prefix}_{ts_str}.txt"
+    json_filename = f"{filename_prefix}_{ts_str}.json"
+    txt_path = os.path.join(output_dir, txt_filename)
+    json_path = os.path.join(output_dir, json_filename)
 
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write(formatted_report)
 
     with open(json_path, "w", encoding="utf-8") as f:
-        json.dump(comparison_data, f, indent=2, ensure_ascii=False)
+        json.dump(enriched_data, f, indent=2, ensure_ascii=False)
+
+    # Also update latest convenience copies
+    latest_txt_path = os.path.join(output_dir, f"{filename_prefix}_latest.txt")
+    latest_json_path = os.path.join(output_dir, f"{filename_prefix}_latest.json")
+    try:
+        with open(latest_txt_path, "w", encoding="utf-8") as f:
+            f.write(formatted_report)
+        with open(latest_json_path, "w", encoding="utf-8") as f:
+            json.dump(enriched_data, f, indent=2, ensure_ascii=False)
+    except Exception as exc:
+        logging.warning(f"Could not update latest pointer files: {exc}")
+
+    return txt_path, json_path
+
+
+def load_simulation_history(
+    output_dir: str = "output/runner",
+    target_europe: str = "europe1",
+) -> List[dict]:
+    """
+    Load historical simulation runs from output_dir sorted chronologically.
+    Filters out '_latest.json' and 'history_' files to avoid duplicates.
+    Extracts metrics for target_europe ('europe1' or 'europe2').
+    """
+    if not os.path.isdir(output_dir):
+        return []
+
+    pattern = os.path.join(output_dir, "*.json")
+    all_files = glob.glob(pattern)
+
+    sim_files = [
+        f for f in all_files
+        if not os.path.basename(f).startswith("history_")
+        and not os.path.basename(f).endswith("_latest.json")
+    ]
+
+    history = []
+    for fpath in sim_files:
+        try:
+            with open(fpath, "r", encoding="utf-8") as fp:
+                data = json.load(fp)
+
+            dt_str = data.get("timestamp_str")
+            if not dt_str:
+                mtime = os.path.getmtime(fpath)
+                dt_str = datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+            metrics = None
+            if f"{target_europe}_metrics" in data and isinstance(data[f"{target_europe}_metrics"], dict):
+                metrics = data[f"{target_europe}_metrics"]
+            elif "per_country" in data:
+                # Extract from comparison structure
+                eur_key = "eur1" if target_europe == "europe1" else "eur2"
+                glob_data = data.get("global", {})
+                
+                def _get_glob(k: str) -> float:
+                    sub = glob_data.get(k, {})
+                    if isinstance(sub, dict):
+                        return float(sub.get(eur_key, sub.get("eur1", 0.0)))
+                    return float(data.get(k, 0.0))
+
+                metrics = {
+                    "total_cost_m_yr": _get_glob("total_cost_m_yr"),
+                    "total_operational_cost_m_yr": _get_glob("total_operational_cost_m_yr"),
+                    "total_annualized_capex_m_yr": _get_glob("total_annualized_capex_m_yr"),
+                    "total_co2_emissions_mt": _get_glob("total_co2_emissions_mt"),
+                    "total_ens_mwh": _get_glob("total_ens_mwh"),
+                    "max_failure_hours": _get_glob("max_failure_hours"),
+                    "per_country": {},
+                }
+                for c, cdata in data.get("per_country", {}).items():
+                    if isinstance(cdata, dict):
+                        def _get_c(k: str) -> float:
+                            sub = cdata.get(k, {})
+                            if isinstance(sub, dict):
+                                return float(sub.get(eur_key, sub.get("eur1", 0.0)))
+                            return float(sub) if sub is not None else 0.0
+
+                        metrics["per_country"][c] = {
+                            "total_cost_m_yr": _get_c("total_cost_m_yr"),
+                            "co2_mt": _get_c("co2_mt"),
+                            "ens_mwh": _get_c("ens_mwh"),
+                            "failure_hours": _get_c("failure_hours"),
+                        }
+
+            if metrics and metrics.get("per_country"):
+                history.append({
+                    "filepath": fpath,
+                    "filename": os.path.basename(fpath),
+                    "timestamp": dt_str,
+                    "metrics": metrics,
+                })
+        except Exception as exc:
+            logging.warning(f"Could not load simulation history file {fpath}: {exc}")
+
+    # Sort chronologically by timestamp
+    history.sort(key=lambda item: item["timestamp"])
+    for idx, item in enumerate(history, start=1):
+        item["run_index"] = idx
+
+    return history
+
+
+def compute_simulation_evolutions(history: List[dict]) -> dict:
+    """
+    Compute evolution progression across historical simulation runs.
+    """
+    if not history:
+        return {"has_history": False, "history_len": 0}
+
+    runs_data = []
+    for h in history:
+        m = h["metrics"]
+        runs_data.append({
+            "run_index": h["run_index"],
+            "filename": h["filename"],
+            "timestamp": h["timestamp"],
+            "total_cost_m_yr": float(m.get("total_cost_m_yr", 0.0)),
+            "total_operational_cost_m_yr": float(m.get("total_operational_cost_m_yr", 0.0)),
+            "total_annualized_capex_m_yr": float(m.get("total_annualized_capex_m_yr", 0.0)),
+            "total_co2_emissions_mt": float(m.get("total_co2_emissions_mt", 0.0)),
+            "total_ens_mwh": float(m.get("total_ens_mwh", 0.0)),
+            "max_failure_hours": float(m.get("max_failure_hours", 0.0)),
+        })
+
+    # Net global evolution from first to last run
+    first_run = runs_data[0]
+    last_run = runs_data[-1]
+    
+    def _diff_stat(key: str) -> dict:
+        v1 = first_run[key]
+        v2 = last_run[key]
+        delta = v2 - v1
+        pct = (delta / v1 * 100.0) if abs(v1) > 1e-6 else (0.0 if abs(v2) < 1e-6 else None)
+        return {"first": v1, "last": v2, "delta": delta, "pct_change": pct}
+
+    global_net_evolution = {
+        "total_cost_m_yr": _diff_stat("total_cost_m_yr"),
+        "total_operational_cost_m_yr": _diff_stat("total_operational_cost_m_yr"),
+        "total_annualized_capex_m_yr": _diff_stat("total_annualized_capex_m_yr"),
+        "total_co2_emissions_mt": _diff_stat("total_co2_emissions_mt"),
+        "total_ens_mwh": _diff_stat("total_ens_mwh"),
+        "max_failure_hours": _diff_stat("max_failure_hours"),
+    }
+
+    # Per-country evolution across all runs
+    all_countries = sorted(list(set().union(*(h["metrics"].get("per_country", {}).keys() for h in history))))
+    country_evolutions = {}
+
+    for c in all_countries:
+        c_runs_cost = []
+        c_runs_co2 = []
+        c_runs_ens = []
+        c_runs_fail = []
+
+        for h in history:
+            cm = h["metrics"].get("per_country", {}).get(c, {})
+            cost_val = float(cm.get("total_cost_m_yr", 0.0))
+            raw_co2 = float(cm.get("co2_mt", 0.0))
+            co2_val = (raw_co2 / 1000.0) if abs(raw_co2) > 500.0 else raw_co2
+            ens_val = float(cm.get("ens_mwh", 0.0))
+            fail_val = float(cm.get("failure_hours", 0.0))
+
+            c_runs_cost.append(cost_val)
+            c_runs_co2.append(co2_val)
+            c_runs_ens.append(ens_val)
+            c_runs_fail.append(fail_val)
+
+        cost_delta = c_runs_cost[-1] - c_runs_cost[0]
+        cost_pct = (cost_delta / c_runs_cost[0] * 100.0) if abs(c_runs_cost[0]) > 1e-6 else 0.0
+
+        co2_delta = c_runs_co2[-1] - c_runs_co2[0]
+        co2_pct = (co2_delta / c_runs_co2[0] * 100.0) if abs(c_runs_co2[0]) > 1e-6 else 0.0
+
+        ens_delta = c_runs_ens[-1] - c_runs_ens[0]
+        fail_delta = c_runs_fail[-1] - c_runs_fail[0]
+
+        country_evolutions[c] = {
+            "costs": c_runs_cost,
+            "cost_delta": cost_delta,
+            "cost_pct": cost_pct,
+            "co2": c_runs_co2,
+            "co2_delta": co2_delta,
+            "co2_pct": co2_pct,
+            "ens": c_runs_ens,
+            "ens_delta": ens_delta,
+            "failure": c_runs_fail,
+            "failure_delta": fail_delta,
+        }
+
+    return {
+        "has_history": len(history) >= 2,
+        "history_len": len(history),
+        "runs": runs_data,
+        "global_net_evolution": global_net_evolution,
+        "country_evolutions": country_evolutions,
+    }
+
+
+def format_simulation_evolutions_table(evolution_data: dict, target_europe: str = "Europe 1") -> str:
+    """
+    Format a complete simulation evolution dashboard into an aligned ASCII table.
+    """
+    if not evolution_data.get("has_history"):
+        return f"\n[i] Only 1 simulation run found for {target_europe}. History tracking requires at least 2 runs.\n"
+
+    runs = evolution_data["runs"]
+    num_runs = len(runs)
+    width = 133
+    sep = "=" * width
+    thin_sep = "-" * width
+
+    lines = []
+    title = f"SIMULATION EVOLUTION HISTORY: {target_europe.upper()} ({num_runs} RUNS RECORDED)"
+    lines.append("")
+    lines.append(sep)
+    lines.append(f"{title:^{width}}")
+    lines.append(sep)
+
+    # 1. Global System Evolution
+    lines.append(f"\n[1] GLOBAL SYSTEM EVOLUTION ACROSS SIMULATIONS ({target_europe.upper()}):")
+    lines.append(thin_sep)
+    g_hdr = (
+        f"{'RUN':<5} | {'TIMESTAMP':<19} | {'TOTAL COST (M€/yr)':>18} | {'OPEX (M€/yr)':>16} | "
+        f"{'CAPEX (M€/yr)':>16} | {'CO2 (Mt)':>12} | {'ENS (MWh)':>14} | {'FAILURE (h)':>13}"
+    )
+    lines.append(g_hdr)
+    lines.append(thin_sep)
+
+    for r in runs:
+        idx_str = f"#{r['run_index']}"
+        ts_str = r['timestamp']
+        cost_str = f"{r['total_cost_m_yr']:>18,.2f}"
+        opex_str = f"{r['total_operational_cost_m_yr']:>16,.2f}"
+        capex_str = f"{r['total_annualized_capex_m_yr']:>16,.2f}"
+        co2_str = f"{r['total_co2_emissions_mt']:>12,.2f}"
+        ens_str = f"{r['total_ens_mwh']:>14,.1f}"
+        fail_str = f"{r['max_failure_hours']:>13,.1f}"
+        lines.append(
+            f"{idx_str:<5} | {ts_str:<19} | {cost_str} | {opex_str} | {capex_str} | {co2_str} | {ens_str} | {fail_str}"
+        )
+
+    lines.append(thin_sep)
+    gnet = evolution_data["global_net_evolution"]
+    summary_label = f"TOTAL CHANGE (#{runs[0]['run_index']} -> #{runs[-1]['run_index']})"
+    cost_d = f"{gnet['total_cost_m_yr']['delta']:>+18,.2f}"
+    opex_d = f"{gnet['total_operational_cost_m_yr']['delta']:>+16,.2f}"
+    capex_d = f"{gnet['total_annualized_capex_m_yr']['delta']:>+16,.2f}"
+    co2_d = f"{gnet['total_co2_emissions_mt']['delta']:>+12,.2f}"
+    ens_d = f"{gnet['total_ens_mwh']['delta']:>+14,.1f}"
+    fail_d = f"{gnet['max_failure_hours']['delta']:>+13,.1f}"
+    lines.append(
+        f"{summary_label:<27} | {cost_d} | {opex_d} | {capex_d} | {co2_d} | {ens_d} | {fail_d}"
+    )
+    lines.append(thin_sep)
+
+    # Helper for per-country tables: decide which runs to display as columns
+    max_run_cols = min(num_runs, 4)
+    displayed_run_indices = list(range(max_run_cols)) if num_runs <= 4 else [0, num_runs - 2, num_runs - 1]
+
+    # 2. Per-Country Total Cost Evolution
+    lines.append(f"\n[2] PER-COUNTRY TOTAL SYSTEM COST (M€/yr) EVOLUTION:")
+    lines.append(thin_sep)
+
+    run_col_headers = "".join(f" | {f'RUN #{runs[i][run_index_key]}':>12}" for i, run_index_key in [(i, 'run_index') for i in displayed_run_indices])
+    cost_hdr = f"{'COUNTRY':<18}{run_col_headers} | {'NET CHANGE (Δ)':>15} | {'CHANGE (%)':>12}"
+    lines.append(cost_hdr)
+    lines.append(thin_sep)
+
+    cev = evolution_data["country_evolutions"]
+    for c in sorted(cev.keys()):
+        cdata = cev[c]
+        run_vals_str = "".join(f" | {cdata['costs'][i]:>12,.0f}" for i in displayed_run_indices)
+        d_str = f"{cdata['cost_delta']:>+15,.0f}"
+        pct_sign = "+" if cdata['cost_pct'] > 0 else ""
+        pct_str = f"{pct_sign}{cdata['cost_pct']:>11.1f}%"
+        lines.append(f"{c:<18}{run_vals_str} | {d_str} | {pct_str}")
+
+    lines.append(thin_sep)
+
+    # 3. Per-Country CO2 Emissions Evolution
+    lines.append(f"\n[3] PER-COUNTRY CO2 EMISSIONS (Mt) EVOLUTION:")
+    lines.append(thin_sep)
+    co2_hdr = f"{'COUNTRY':<18}{run_col_headers} | {'NET CHANGE (Δ)':>15} | {'CHANGE (%)':>12}"
+    lines.append(co2_hdr)
+    lines.append(thin_sep)
+
+    for c in sorted(cev.keys()):
+        cdata = cev[c]
+        run_vals_str = "".join(f" | {cdata['co2'][i]:>12.1f}" for i in displayed_run_indices)
+        d_str = f"{cdata['co2_delta']:>+15.1f}"
+        pct_sign = "+" if cdata['co2_pct'] > 0 else ""
+        pct_str = f"{pct_sign}{cdata['co2_pct']:>11.1f}%"
+        lines.append(f"{c:<18}{run_vals_str} | {d_str} | {pct_str}")
+
+    lines.append(thin_sep)
+
+    # 4. Per-Country Security of Supply Evolution
+    lines.append(f"\n[4] PER-COUNTRY SECURITY OF SUPPLY (ENS & LOSS OF LOAD) EVOLUTION:")
+    lines.append(thin_sep)
+    idx_first = displayed_run_indices[0]
+    idx_last = displayed_run_indices[-1]
+    lbl_first = f"#{runs[idx_first]['run_index']}"
+    lbl_last = f"#{runs[idx_last]['run_index']}"
+    sec_hdr = (
+        f"{'COUNTRY':<18} | {f'ENS {lbl_first} (MWh)':>14} | {f'ENS {lbl_last} (MWh)':>14} | {'Δ ENS (MWh)':>13} | "
+        f"{f'FAIL {lbl_first} (h)':>13} | {f'FAIL {lbl_last} (h)':>13} | {'Δ FAIL (h)':>12}"
+    )
+    lines.append(sec_hdr)
+    lines.append(thin_sep)
+
+    for c in sorted(cev.keys()):
+        cdata = cev[c]
+        ens_1 = f"{cdata['ens'][idx_first]:>14,.0f}"
+        ens_n = f"{cdata['ens'][idx_last]:>14,.0f}"
+        ens_d = f"{cdata['ens_delta']:>+13,.0f}"
+
+        fail_1 = f"{cdata['failure'][idx_first]:>13,.1f}"
+        fail_n = f"{cdata['failure'][idx_last]:>13,.1f}"
+        fail_d = f"{cdata['failure_delta']:>+12,.1f}"
+
+        lines.append(f"{c:<18} | {ens_1} | {ens_n} | {ens_d} | {fail_1} | {fail_n} | {fail_d}")
+
+    lines.append(sep)
+    return "\n".join(lines) + "\n"
+
+
+def display_simulation_evolutions(report_text: str) -> None:
+    """Print simulation evolution report to console."""
+    print(report_text)
+
+
+def save_simulation_evolutions(
+    evolution_data: dict,
+    report_text: str,
+    output_dir: str = "output/runner",
+    target_europe: str = "europe1",
+) -> Tuple[str, str]:
+    """
+    Save simulation evolution data and formatted text report to disk.
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    txt_path = os.path.join(output_dir, f"history_evolutions_{target_europe}.txt")
+    json_path = os.path.join(output_dir, f"history_evolutions_{target_europe}.json")
+
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(report_text)
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(evolution_data, f, indent=2, ensure_ascii=False)
 
     return txt_path, json_path

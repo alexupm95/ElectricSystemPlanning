@@ -1,7 +1,4 @@
-# Investment choices for France (capacities in MW)
-# You can modify the values below or add other asset types.
-# Accepted syntax: 'asset: capacity', 'asset = capacity', or 'asset capacity'
-
+# Investment choices for France - Europe 1 (capacities in MW)
 country: france
 
 # Low-carbon & renewable generation

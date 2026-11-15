@@ -19,9 +19,14 @@ The runner supports two European configurations or competing scenario mixes:
   1. Configures and simulates **Europe 1**.
   2. Configures and simulates **Europe 2**.
   3. Displays a comprehensive **Comparative Dashboard** in the terminal (System Cost, OPEX, CAPEX, €/MWh, CO2, ENS, Failure Hours, with Δ and % differences).
-  4. Automatically saves the comparative results to:
-     - `output/long_term_uc/comparison_europe1_vs_europe2.txt` (formatted text table)
-     - `output/long_term_uc/comparison_europe1_vs_europe2.json` (machine-readable metrics)
+  4. Automatically saves the comparative results to `output/runner/`:
+     - `output/runner/comparison_europe1_vs_europe2_YYYYMMDD_HHMMSS.txt` (timestamped text table)
+     - `output/runner/comparison_europe1_vs_europe2_YYYYMMDD_HHMMSS.json` (timestamped metrics)
+     - `output/runner/comparison_europe1_vs_europe2_latest.txt` (latest text table)
+     - `output/runner/comparison_europe1_vs_europe2_latest.json` (latest metrics)
+  5. Automatically computes, displays, and saves the **simulation evolution history** across successive runs for Europe 1 (and for each country) to:
+     - `output/runner/history_evolutions_europe1.txt`
+     - `output/runner/history_evolutions_europe1.json`
 - If only one Europe is present (or without suffix), the runner executes that single Europe and displays the standard dashboard.
 
 In all cases, the `main_runner.py` script:
@@ -29,7 +34,7 @@ In all cases, the `main_runner.py` script:
    - In TXT mode: updates the `input/long_term_uc/countries/{country}.json` files.
    - Automatically configures `elec-europe_params_to-be-modif.json`:
      - Enforces **`mode: "europe"`**: each country takes the capacities defined by its JSON file and cross-border interconnected exchanges are simulated.
-     - Enforces the **full-year simulation horizon** (`"uc_period_start": "1900/1/1"`, `"uc_period_end": "1901/1/1"`, 8,760 hours), ensuring both OPEX and CAPEX are expressed on the same annual basis (M€/year).
+     - Enforces the **full-year simulation horizon** (`"uc_period_start": "1900/1/1"`, `"uc_period_end": "1901/1/1"`, 8,760 hours) by default, or a fast **2-week test period** (`"1900/1/1"` to `"1900/1/15"`) when `--test` is specified, ensuring both OPEX and CAPEX are expressed on a consistent basis.
    - Executes the European unit commitment optimization simulation (`my_little_europe_lt_uc.py`).
    - Displays a comparative summary table for every European country and for Europe as a whole (ENS, failure hours, total cost, CO2 emissions).
 
@@ -111,6 +116,19 @@ python main_runner.py --source json
 python main_runner.py json --dry-run
 ```
 
+### Fast Debug Mode (`--test`)
+For rapid testing and debugging, you can simulate a short **2-week period** (14 days / 336 hours, from `1900/1/1` to `1900/1/15`) instead of the entire year. This executes the full optimization problem in just a few seconds:
+```bash
+# Fast test simulation (2 weeks)
+python main_runner.py --test
+
+# Fast test simulation in dry-run mode
+python main_runner.py --test --dry-run
+
+# Or via Makefile shortcut
+make runner-test
+```
+
 ### Custom Files or Folders
 You can also specify a custom collection directory or specific files:
 ```bash
@@ -122,7 +140,10 @@ Or using the Makefile shortcut targets:
 # Preview update of country JSONs (TXT mode)
 make runner-dry-run
 
-# Run full European collective simulation
+# Run fast test simulation (2 weeks)
+make runner-test
+
+# Run full European collective simulation (full year)
 make runner
 ```
 

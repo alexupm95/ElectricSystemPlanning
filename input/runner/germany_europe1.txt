@@ -1,6 +1,4 @@
-# Investment choices for Germany (capacities in MW)
-# You can modify the values below or add other asset types.
-
+# Investment choices for Germany - Europe 1 (capacities in MW)
 country: germany
 
 # Renewables

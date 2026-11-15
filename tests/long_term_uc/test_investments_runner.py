@@ -8,6 +8,11 @@ import pytest
 from src.common.constants.usage_params_json import EnvPhaseNames
 from src.include_runner.investments_runner import (
     AVAILABLE_COUNTRIES,
+    DEFAULT_PERIOD_START,
+    DEFAULT_PERIOD_END,
+    TEST_PERIOD_START,
+    TEST_PERIOD_END,
+    resolve_simulation_period,
     normalize_country_name,
     normalize_asset_name,
     parse_capacity_value,
@@ -32,6 +37,11 @@ from src.include_runner.investments_runner import (
     format_comparison_table,
     display_europe_comparison,
     save_comparison_results,
+    load_simulation_history,
+    compute_simulation_evolutions,
+    format_simulation_evolutions_table,
+    display_simulation_evolutions,
+    save_simulation_evolutions,
 )
 from src.utils.read import read_and_check_uc_run_params, read_usage_params
 
@@ -604,6 +614,194 @@ class TestComparativeAnalysisAndReporting:
             with open(json_p, "r", encoding="utf-8") as f:
                 loaded = json.load(f)
                 assert loaded["global"]["total_cost_m_yr"]["delta"] == -500.0
+                assert "timestamp" in loaded
+                assert "timestamp_str" in loaded
+
+            # Check that _latest copies were created as well
+            latest_txt = os.path.join(tmpdir, "test_comp_latest.txt")
+            latest_json = os.path.join(tmpdir, "test_comp_latest.json")
+            assert os.path.isfile(latest_txt)
+            assert os.path.isfile(latest_json)
+
+
+class TestSimulationHistoryAndEvolutions:
+    def test_load_simulation_history_chronological_order(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Create 3 mock runs with timestamps
+            run1 = {
+                "timestamp_str": "2026-11-15 10:00:00",
+                "europe1_metrics": {
+                    "total_cost_m_yr": 10000.0,
+                    "per_country": {
+                        "france": {"total_cost_m_yr": 4000.0, "co2_mt": 5.0, "ens_mwh": 0.0, "failure_hours": 0.0}
+                    }
+                }
+            }
+            run2 = {
+                "timestamp_str": "2026-11-15 12:00:00",
+                "europe1_metrics": {
+                    "total_cost_m_yr": 9500.0,
+                    "per_country": {
+                        "france": {"total_cost_m_yr": 3800.0, "co2_mt": 4.0, "ens_mwh": 0.0, "failure_hours": 0.0}
+                    }
+                }
+            }
+            # Put them out of order in filenames
+            with open(os.path.join(tmpdir, "comp_20261115_120000.json"), "w") as f:
+                json.dump(run2, f)
+            with open(os.path.join(tmpdir, "comp_20261115_100000.json"), "w") as f:
+                json.dump(run1, f)
+            # Add latest file (should be ignored)
+            with open(os.path.join(tmpdir, "comp_latest.json"), "w") as f:
+                json.dump(run2, f)
+
+            history = load_simulation_history(output_dir=tmpdir, target_europe="europe1")
+            assert len(history) == 2
+            assert history[0]["run_index"] == 1
+            assert history[0]["timestamp"] == "2026-11-15 10:00:00"
+            assert history[1]["run_index"] == 2
+            assert history[1]["timestamp"] == "2026-11-15 12:00:00"
+
+    def test_compute_simulation_evolutions_and_format(self, capsys):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            run1 = {
+                "timestamp_str": "2026-11-15 10:00:00",
+                "europe1_metrics": {
+                    "total_cost_m_yr": 10000.0,
+                    "total_operational_cost_m_yr": 6000.0,
+                    "total_annualized_capex_m_yr": 4000.0,
+                    "total_co2_emissions_mt": 50.0,
+                    "total_ens_mwh": 100.0,
+                    "max_failure_hours": 2.0,
+                    "per_country": {
+                        "france": {"total_cost_m_yr": 4000.0, "co2_mt": 5.0, "ens_mwh": 0.0, "failure_hours": 0.0},
+                        "germany": {"total_cost_m_yr": 6000.0, "co2_mt": 45.0, "ens_mwh": 100.0, "failure_hours": 2.0},
+                    }
+                }
+            }
+            run2 = {
+                "timestamp_str": "2026-11-15 14:00:00",
+                "europe1_metrics": {
+                    "total_cost_m_yr": 9200.0,
+                    "total_operational_cost_m_yr": 5500.0,
+                    "total_annualized_capex_m_yr": 3700.0,
+                    "total_co2_emissions_mt": 42.0,
+                    "total_ens_mwh": 0.0,
+                    "max_failure_hours": 0.0,
+                    "per_country": {
+                        "france": {"total_cost_m_yr": 3800.0, "co2_mt": 4.0, "ens_mwh": 0.0, "failure_hours": 0.0},
+                        "germany": {"total_cost_m_yr": 5400.0, "co2_mt": 38.0, "ens_mwh": 0.0, "failure_hours": 0.0},
+                    }
+                }
+            }
+            with open(os.path.join(tmpdir, "run1.json"), "w") as f:
+                json.dump(run1, f)
+            with open(os.path.join(tmpdir, "run2.json"), "w") as f:
+                json.dump(run2, f)
+
+            history = load_simulation_history(output_dir=tmpdir, target_europe="europe1")
+            assert len(history) == 2
+
+            evol = compute_simulation_evolutions(history)
+            assert evol["has_history"] is True
+            assert evol["global_net_evolution"]["total_cost_m_yr"]["delta"] == -800.0
+            assert evol["global_net_evolution"]["total_cost_m_yr"]["pct_change"] == -8.0
+            assert evol["country_evolutions"]["germany"]["cost_delta"] == -600.0
+            assert evol["country_evolutions"]["germany"]["ens_delta"] == -100.0
+
+            table_text = format_simulation_evolutions_table(evol, target_europe="Europe 1")
+            display_simulation_evolutions(table_text)
+            captured = capsys.readouterr().out
+
+            assert "SIMULATION EVOLUTION HISTORY: EUROPE 1" in captured
+            assert "GLOBAL SYSTEM EVOLUTION ACROSS SIMULATIONS" in captured
+            assert "PER-COUNTRY TOTAL SYSTEM COST (M€/yr) EVOLUTION" in captured
+            assert "germany" in captured
+
+            # Test saving evolution report
+            txt_p, json_p = save_simulation_evolutions(
+                evolution_data=evol,
+                report_text=table_text,
+                output_dir=tmpdir,
+                target_europe="europe1",
+            )
+            assert os.path.isfile(txt_p)
+            assert os.path.isfile(json_p)
+
+
+class TestInvestmentsRunnerSimulationPeriod:
+    def test_resolve_simulation_period_default_full_year(self):
+        start, end = resolve_simulation_period(is_test=False)
+        assert start == "1900/1/1"
+        assert end == "1901/1/1"
+
+    def test_resolve_simulation_period_test_mode(self):
+        start, end = resolve_simulation_period(is_test=True)
+        assert start == "1900/1/1"
+        assert end == "1900/1/15"
+
+    def test_resolve_simulation_period_test_mode_preserves_custom_dates(self):
+        # Custom start date with test mode
+        start, end = resolve_simulation_period(is_test=True, period_start="1900/2/1")
+        assert start == "1900/2/1"
+        assert end == "1900/1/15"
+
+        # Custom end date with test mode
+        start, end = resolve_simulation_period(is_test=True, period_end="1900/1/20")
+        assert start == "1900/1/1"
+        assert end == "1900/1/20"
+
+    def test_update_europe_params_with_test_period(self):
+        with tempfile.NamedTemporaryFile("w+", suffix=".json", delete=False) as tmp:
+            json.dump({"mode": "europe", "team": "france"}, tmp)
+            tmp_path = tmp.name
+
+        try:
+            test_start, test_end = resolve_simulation_period(is_test=True)
+            update_europe_params(
+                mode="europe",
+                team="france",
+                period_start=test_start,
+                period_end=test_end,
+                europe_params_path=tmp_path,
+            )
+            with open(tmp_path, "r") as fp:
+                data = json.load(fp)
+            assert data["mode"] == "europe"
+            assert data["uc_period_start"] == "1900/1/1"
+            assert data["uc_period_end"] == "1900/1/15"
+        finally:
+            if os.path.isfile(tmp_path):
+                os.remove(tmp_path)
+
+    def test_main_runner_cli_test_flag(self):
+        from main_runner import build_parser
+
+        parser = build_parser()
+
+        # Without --test
+        args_default = parser.parse_args([])
+        assert args_default.test is False
+        start, end = resolve_simulation_period(
+            is_test=args_default.test,
+            period_start=args_default.period_start,
+            period_end=args_default.period_end,
+        )
+        assert start == "1900/1/1"
+        assert end == "1901/1/1"
+
+        # With --test
+        args_test = parser.parse_args(["--test"])
+        assert args_test.test is True
+        start, end = resolve_simulation_period(
+            is_test=args_test.test,
+            period_start=args_test.period_start,
+            period_end=args_test.period_end,
+        )
+        assert start == "1900/1/1"
+        assert end == "1900/1/15"
+
+
 
 
 

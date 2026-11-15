@@ -1,0 +1,35 @@
+{
+  "team": "france",
+  "europe": "europe1",
+  "selected_prod_types": {
+    "france": [
+      "nuclear",
+      "solar_pv",
+      "wind_onshore",
+      "wind_offshore",
+      "hydro_reservoir",
+      "hydro_run_of_river",
+      "hydro_pump_storage_closed_loop",
+      "hydro_pump_storage_open_loop",
+      "batteries",
+      "dsr",
+      "gas",
+      "failure"
+    ]
+  },
+  "capacities_tb_overwritten": {
+    "france": {
+      "nuclear": 61000.0,
+      "solar_pv": 35000.0,
+      "wind_onshore": 25000.0,
+      "wind_offshore": 10000.0,
+      "hydro_reservoir": 8500.0,
+      "hydro_run_of_river": 4500.0,
+      "hydro_pump_storage_closed_loop": 5000.0,
+      "hydro_pump_storage_open_loop": 1000.0,
+      "batteries": 3000.0,
+      "dsr": 2500.0,
+      "gas": 4000.0
+    }
+  }
+}
