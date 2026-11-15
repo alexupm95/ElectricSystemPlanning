@@ -14,7 +14,7 @@ from src.common.constants.uc_json_inputs import ALL_KEYWORD
 from src.common.error_msgs import uncoherent_param_stop
 from src.common.logger import format_relative_path_for_log
 from src.common.long_term_uc_io import get_current_run_idx_in_output_folder, get_json_fuel_sources_tb_modif_file, \
-    get_json_params_tb_modif_file
+    get_json_params_tb_modif_file, get_json_eraa_avail_values_file
 from src.include.timeseries import Timeseries
 from src.utils.basic_utils import are_lists_eq
 from src.utils.dates import get_period_str
@@ -306,9 +306,11 @@ class UCRunParams:
                     errors_list.append(f'Repetition of aggreg. prod. types {msg_suffix} {elt_country}')
                 unknown_agg_prod_types = list(current_agg_pt_set - current_avail_aggreg_pt_set)
                 if len(unknown_agg_prod_types) > 0:
+                    eraa_avail_values_json_file = format_relative_path_for_log(path=get_json_eraa_avail_values_file())
                     errors_list.append(
                         f'Unknown/not available aggreg. prod. types {msg_suffix} {elt_country}:'
-                        f' {unknown_agg_prod_types}')
+                        f' {unknown_agg_prod_types}\n-> see file {eraa_avail_values_json_file} to get '
+                        f'list of allowed values')
 
         # warning if useless data provided in field "capacities_tb_overwritten"
         useless_capas_vals_in_json_files = {}
