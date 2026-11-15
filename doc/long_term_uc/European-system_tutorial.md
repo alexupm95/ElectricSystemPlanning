@@ -289,7 +289,7 @@ In particular, <span style="color:#32B032; font-weight:bold">co2_emissions</span
 
 In order to **get a dispatch of hydraulic assets closer to the one observed in reality** - especially for (meta-)countries 
 in which it represents a significant part of the capacities (e.g., Scandinavia!), it may be **useful to specify**:
-- **min/max generation levels**: adding and completing a file XXX.
+- **min/max generation levels**: adding and completing a file *PECD-hydro-weekly-reservoir-min-max-generation.csv*.
   
   **Format** (columns, ";" separator): week;climatic_year;min_value;max_value with
     - <span style="color:#32B032; font-weight:bold">week</span>: index in 1, ..., 53 (<span style="color:#257cbd; font-weight:bold">int</span>).
