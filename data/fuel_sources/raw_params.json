@@ -3,19 +3,19 @@
     "co2_emissions": 0,
     "committable": "True",
     "energy_density_per_ton": 5,
-    "cost_per_ton": 30
+    "cost_per_ton": 55
   },
   "coal": {
-    "co2_emissions": 0.760,
+    "co2_emissions": 0.375,
     "committable": "True",
     "energy_density_per_ton": 8,
-    "cost_per_ton": 128
+    "cost_per_ton": 111
   },
   "gas": {
-    "co2_emissions": 0.370,
+    "co2_emissions": 0.202,
     "committable": "True",
-    "energy_density_per_ton": 14.89,
-    "cost_per_ton": 134.34
+    "energy_density_per_ton": 10.6,
+    "cost_per_ton": 250
   },
   "hard_coal": {
     "co2_emissions": 0.341,
@@ -34,7 +34,7 @@
     "cost_per_ton": 111
   },
   "oil": {
-    "co2_emissions": 0.406,
+    "co2_emissions": 0.267,
     "committable": "True",
     "energy_density_per_ton": 11.63,
     "cost_per_ton": 555.78
@@ -54,8 +54,8 @@
   "uranium": {
     "co2_emissions": 0,
     "committable": "True",
-    "energy_density_per_ton": 22394,
-    "cost_per_ton": 150000.84
+    "energy_density_per_ton": 22394000000,
+    "cost_per_ton": 15000000000
   },
   "wind": {
     "co2_emissions": 0,

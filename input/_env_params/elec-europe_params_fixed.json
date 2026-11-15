@@ -119,14 +119,14 @@
       "p_min_pu": 0,
       "p_max_pu": 1,
       "marginal_cost": 40,
-      "efficiency": 1,
+      "efficiency": 0.3,
       "committable": "false"
     },
     "coal": {
       "carrier": "coal",
       "p_min_pu": 0,
       "p_max_pu": 1,
-      "efficiency": 0.9,
+      "efficiency": 0.45,
       "marginal_cost": 35,
       "committable": "true"
     },
@@ -148,7 +148,7 @@
       "carrier": "gas",
       "p_min_pu": 0,
       "p_max_pu": 1,
-      "efficiency": 0.5,
+      "efficiency": 0.48,
       "marginal_cost": 56,
       "committable": "true"
     },
@@ -193,7 +193,7 @@
       "carrier": "uranium",
       "p_min_pu": 0.25,
       "p_max_pu": 1,
-      "efficiency": 0.33,
+      "efficiency": 0.38,
       "marginal_cost": 9,
       "committable": "true"
     },
@@ -202,6 +202,7 @@
       "p_min_pu": 0,
       "p_max_pu": 1,
       "marginal_cost": 147,
+      "efficiency": 0.33,
       "committable": "true"
     },
     "others_fatal": {
