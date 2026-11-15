@@ -35,5 +35,7 @@
     "scandinavia2italy": 0,
     "scandinavia2iberian-peninsula": 0,
     "germany2italy": 0
-  }
+  },
+  "output_tag": "preliminar",
+  "add_run_idx_tag_to_output": true
 }
