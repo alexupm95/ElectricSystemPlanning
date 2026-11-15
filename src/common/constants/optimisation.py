@@ -35,7 +35,7 @@ class OptimPbCharacteristics:
     n_constraints: int = None
 
     def __repr__(self) -> str:
-        repr_str = f'{self.type.upper()} optimisation pb with:'
+        repr_str = f'{self.type.upper()} optimisation problem with:'
         repr_str += f'\n* {format_with_spaces(number=self.n_variables)} variables'
         if self.n_int_variables is not None:
             repr_str += f' (including {format_with_spaces(number=self.n_int_variables)} integer ones)'

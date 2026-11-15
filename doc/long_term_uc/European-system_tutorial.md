@@ -58,30 +58,59 @@ For all files obtained, **suffixes indicate** the (i) **Country** corresponding 
 
 In detail, and **except if the resolution of PyPSA optimization model was not successful**, it will give you: 
 * ([data](../../output/long_term_uc/data) subfolder) **optimal production of all generators** considered in Europe, in *opt_power_europe_{TY and CY}_{start date}.csv* file. 
+
+  Ex: in the run provided on a "toy model" only France and Germany - and for the three first weeks of 2033 and climatic year 1989, [opt_power_europe_2033_cy1989_1900-01-01.csv](../../output/long_term_uc/data/opt_power_europe_2033_cy1989_1900-01-01.csv) contains these information for both countries.
+
 * ([data](../../output/long_term_uc/data)) **"prices" for all countries** considered in Europe, in *marginal-prices_europe_{TY and CY}_{start date}.csv* file. 
 
   N.B. Specifically, these prices are the optimal values of dual variables associated to supply-demand equilibrium (for those who are familiar with optimization; otherwise it will be explained!). 
+
+  Ex: see [marginal-prices_europe_2033_cy1989_1900-01-01.csv](../../output/long_term_uc/data/marginal-prices_europe_2033_cy1989_1900-01-01.csv).
+
 * ([data](../../output/long_term_uc/data)) **optimal flows in the interconnections** in *link-flow_opt_decisions_europe_{TY and CY}_{start date}.csv*.
+
+  Ex: see [link-flow_opt_decisions_europe_2033_cy1989_1900-01-01.csv](../../output/long_term_uc/data/link-flow_opt_decisions_europe_2033_cy1989_1900-01-01.csv).
+
 * ([data](../../output/long_term_uc/data)) **optimal decisions for the storages** - production (turbining, discharging; depending on the type of asset), 
 consumption (pumping, charging) and "State-of-Charge" (water/battery level) in *storage_opt_decisions_europe_{TY and CY}_{start date}.csv*.
+
+  Ex: see [storage_opt_decisions_europe_2033_cy1989_1900-01-01.csv](../../output/long_term_uc/data/storage_opt_decisions_europe_2033_cy1989_1900-01-01.csv).
+
 * ([data](../../output/long_term_uc/data)) summary of (per-country) main results in *uc-summary_europe_{TY and CY}_{start date}.json*. In detail, all metrics being calculated over the whole UC period:
   - **per_country_ens**: Energy Not Served, i.e. the yearly volume of production of (fictive) failure asset (MWh).
   - **per_country_n_failure_hours**: number of failure hours, i.e. with a strictly positive level of failure production (no unit).
   - **total_cost** (resp. **per_country_total_cost**): of the UC problem simulated over Europe (resp. for a given country), i.e. "value" of the optimization problem (M€).
   - **total_operational_cost** (resp. **per_country_total_operational_cost**): previous value over Europe (resp. for a given country), from which failure cost (penalty) has been subtracted (M€).
   - **total_co2_emissions** (resp. **per_country_co2_emissions**): CO2 emissions over Europe (resp. for a given country) (tCO2eq.).
+
+  Ex: see [uc-summary_europe_2033_cy1989_1900-01-01.json](../../output/long_term_uc/data/uc-summary_europe_2033_cy1989_1900-01-01.json).
 * ([data](../../output/long_term_uc/data)) An LP file containing the description of UC optimization problem solved, in *model_7-countries_{start date}.lp*.
 
   N.B. The suffix of this file contain the trigrams of the considered countries if they are very few; otherwise their number 
 (7 if you are simulating the whole perimeter available for this class).
+
+
+  Ex: see [model_2-countries_2033-01-01.lp](../../output/long_term_uc/data/model_2-countries_2033-01-01.lp) - with potentially a bit "cryptic" notations... we could discuss this a bit later!
 
 <br>
 
 * ([figures](../../output/long_term_uc/figures) subfolder) A - very schematic - description of the "network" corresponding to the UC model simulated, in *network_7-bus.png*.
 
   N.B. Idem regarding the suffix.
+
+  Ex: see [network_2-bus.png](../../output/long_term_uc/figures/network_2-bus.png).
+
 * ([figures](../../output/long_term_uc/figures)) A **"cumulated (stacked) vision" of the production**, in *prod_{country}_{TY and CY}_{start date}.png* files.
+
+    Ex: see [prod_france_2033_cy1989_1900-01-01.png](../../output/long_term_uc/figures/prod_france_2033_cy1989_1900-01-01.png) for France.
+
+* ([figures](../../output/long_term_uc/figures)) **Stock State-of-CHarge (SoC)**, in *stock_soc_{country}_{TY and CY}_{strat date}.png* files.
+
+    Ex: see [stock_soc_france_2033_cy1989_1900-01-01.png](../../output/long_term_uc/figures/stock_soc_france_2033_cy1989_1900-01-01.png) for France.
+
 * ([figures](../../output/long_term_uc/figures)) **Price curves**, for the different countries in *prices_europe_{TY and CY}_{start date}.png* file.
+
+  Ex: see [prices_europe_2033_cy1989_1900-01-01.png](../../output/long_term_uc/figures/prices_europe_2033_cy1989_1900-01-01.png).
 
 ## Start preparing the "design" of your country/Europe system by playing with this UC tool
 
@@ -136,6 +165,9 @@ On the **format of JSON files**:
 The ones in folder [input/long_term_uc](../../input/long_term_uc/); **file by file description** - starting with the two only ones to be modified:
 
 - [elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json):  
+    - (optional) <span style="color:#32B032; font-weight:bold">team</span>: the name of your - European! - team; only for some prints in the logs.
+  
+      Default: logs without your team name :).
     - <span style="color:#32B032; font-weight:bold">selected_climatic_year</span>: to **choose climatic year** considered for UC model (unique deterministic scenario, <span style="color:#257cbd; font-weight:bold">int</span> value; that must be in set of allowed ones -> see [elec-europe_eraa-available-values.json](../../input/long_term_uc/elec-europe_eraa-available-values.json)).
     - <span style="color:#32B032; font-weight:bold">selected_countries</span>: to **choose countries** that you would like to be part of your European - copper-plate - long-term UC model (<span style="color:#257cbd; font-weight:bold">list of string</span>; that must be in the set of considered countries for this class, see same file). 
     
@@ -147,26 +179,26 @@ The ones in folder [input/long_term_uc](../../input/long_term_uc/); **file by fi
     - (optional) <span style="color:#32B032; font-weight:bold">uc_period_end</span>: idem, **end of period; same format** (<span style="color:#257cbd; font-weight:bold">string</span>). 
   
       Default: period of 9 days starting from <span style="color:#32B032; font-weight:bold">uc_period_start</span>, which consists in considering a week with 2 days of "ring guard" (to avoid "end-of-the-world" effects).
-    - <span style="color:#32B032; font-weight:bold">failure_power_capa</span>: **capacity of the failure - fictive - asset** considered (<span style="color:#257cbd; font-weight:bold">non-negative float</span>). 
+    - <span style="color:#32B032; font-weight:bold">failure_power_capa</span>: **capacity of the failure - fictive - asset** considered (<span style="color:#257cbd; font-weight:bold">non-negative float</span>, MW). 
   
       N.B. Common to all countries.
-    - <span style="color:#32B032; font-weight:bold">failure_penalty</span>: **failure asset variable cost**, or more standardly "penalty" (<span style="color:#257cbd; font-weight:bold">non-negative float</span>). 
+    - <span style="color:#32B032; font-weight:bold">failure_penalty</span>: **failure asset variable cost**, or more standardly "penalty" (<span style="color:#257cbd; font-weight:bold">non-negative float</span>, €/MWh). 
   
       N.B. Typically set to a "very big" value, so that this asset be used as a last recourse - i.e. after having used all other production units at maximal power available.
-    - <span style="color:#32B032; font-weight:bold">interco_capas_tb_overwritten</span>: **values for the interconnection capacities**; to be used to overwrite - or complete - ERAA data (<span style="color:#257cbd; font-weight:bold">dictionary</span> with <span style="color:#257cbd; font-weight:bold">str</span> keys and <span style="color:#257cbd; font-weight:bold">non-negative float</span> values, with keys under format {origin country}2{destination country}). 
+    - <span style="color:#32B032; font-weight:bold">interco_capas_tb_overwritten</span>: **values for the interconnection capacities**; to be used to overwrite - or complete - ERAA data (<span style="color:#257cbd; font-weight:bold">dictionary</span> with <span style="color:#257cbd; font-weight:bold">str</span> keys and <span style="color:#257cbd; font-weight:bold">non-negative float</span> values in MW, with keys under format {origin country}2{destination country}). 
   
       Ex:  
       ```json
-      {"france2poland": 10, "france2scandinavia": 0, "italy2iberian-peninsula": 0} 
+      {"france2poland": 10000, "france2scandinavia": 0, "italy2iberian-peninsula": 0} 
       ```
 
       will set interconnection capacity from France to Poland to 10GW (very fictive!) and from France to both Scandinavia et Iberian-Peninsula to 0GW. Note that regarding the France to Scandinavia link this value will be useless as there is no ERAA data associated to this link; in turn our code already used 0GW as the value.
-    - (optional) <span style="color:#32B032; font-weight:bold">output_tag</span>: to **add a tag to the obtained data/figure** output folders. 
+    - (optional) <span style="color:#32B032; font-weight:bold">output_tag</span>: to **add a tag to the obtained data/figure** output folders (<span style="color:#257cbd; font-weight:bold">string</span>, MW). 
       
       Default: no tag, in this case a previous run results may be overwritten.
       
       Ex: if <span style="color:#32B032; font-weight:bold">output_tag</span>="preliminar", data (resp. figure) results will be obtained in "data_preliminar" (resp. "figures_preliminar") subfolders.
-    - (optional) <span style="color:#32B032; font-weight:bold">add_run_idx_tag_to_output</span>: to **add a tag indicating the run index** to the obtained data (resp. figure) output folders. 
+    - (optional) <span style="color:#32B032; font-weight:bold">add_run_idx_tag_to_output</span>: to **add a tag indicating the run index** to the obtained data (resp. figure) output folders (<span style="color:#257cbd; font-weight:bold">boolean</span>). 
    
       Default: no such index, in this case a previous run results may be overwritten.
 
@@ -257,7 +289,7 @@ In particular, <span style="color:#32B032; font-weight:bold">co2_emissions</span
 
 In order to **get a dispatch of hydraulic assets closer to the one observed in reality** - especially for (meta-)countries 
 in which it represents a significant part of the capacities (e.g., Scandinavia!), it may be **useful to specify**:
-- **min/max generation levels**: adding and completing a file XXX.
+- **min/max generation levels**: adding and completing a file *PECD-hydro-weekly-reservoir-min-max-generation.csv*.
   
   **Format** (columns, ";" separator): week;climatic_year;min_value;max_value with
     - <span style="color:#32B032; font-weight:bold">week</span>: index in 1, ..., 53 (<span style="color:#257cbd; font-weight:bold">int</span>).

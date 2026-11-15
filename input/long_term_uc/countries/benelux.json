@@ -1,0 +1,28 @@
+{
+  "team": "benelux",
+  "selected_prod_types": {
+    "benelux": [
+      "wind_offshore",
+      "wind_onshore",
+      "solar_pv",
+      "nuclear",
+      "gas",
+      "batteries",
+      "dsr",
+      "biofuel",
+      "failure"
+    ]
+  },
+  "capacities_tb_overwritten": {
+    "benelux": {
+      "wind_offshore": 25000.0,
+      "wind_onshore": 15000.0,
+      "solar_pv": 30000.0,
+      "nuclear": 6000.0,
+      "gas": 15000.0,
+      "batteries": 4000.0,
+      "dsr": 2000.0,
+      "biofuel": 1500.0
+    }
+  }
+}

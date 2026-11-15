@@ -2,16 +2,15 @@
   "selected_climatic_year": 1989,
   "selected_countries": [
     "france",
-    "germany",
-    "italy",
-    "iberian-peninsula",
-    "benelux",
-    "scandinavia",
-    "poland"
+    "germany"
   ],
   "selected_target_year": 2033,
   "mode": "europe",
+<<<<<<< HEAD
   "team": "france",
+=======
+  "team": "europe_to_be_defined",
+>>>>>>> 97a1a30b71f6b08328da7848bcd118c420023779
   "uc_period_start": "1900/1/1",
   "uc_period_end": "1901/1/1",
   "failure_power_capa": 10000000000.0,
@@ -41,35 +40,11 @@
     "scandinavia2iberian-peninsula": 0,
     "germany2italy": 0
   },
-  "extra_params": {
-    "max_co2_emis_constraints": {
-      "cases": [
-        {
-          "countries": [
-            "europe"
-          ],
-          "upper_bound": 3.14
-        },
-        {
-          "countries": [
-            "france",
-            "germany"
-          ],
-          "upper_bound": 1
-        }
-      ]
-    },
-    "co2_emis_price": 10,
-    "state_of_charge_init_pu": {
-      "fra_hydro_reservoir": 0.2,
-      "ger_hydro_reservoir": 1.2
-    }
-  },
   "output_tag": "preliminar",
   "add_date_tag_to_output": false,
-  "add_run_idx_tag_to_output": true,
   "plot_stock_soc_in_pu": false,
   "save_link_capa_dual_vars": true,
   "plot_link_capa_saturation": false,
-  "save_custom_const_dual_vars": true
+  "save_custom_const_dual_vars": true,
+  "add_run_idx_tag_to_output": true
 }

@@ -210,7 +210,7 @@ def create_pypsa_network_model(name: str, uc_run_params: UCRunParams, eraa_datas
     if with_sum_of_prod_custom_const:
         for sum_prod_const in uc_run_params.sum_prod_constraints:
             pypsa_model.add_sum_of_prod_custom_const(prod_sum_const=sum_prod_const)
-    logging.info(f'PyPSA network main properties: {pypsa_model.network}')
+    logging.info(f'PyPSA network main properties: {pypsa_model.network}\n{pypsa_model.network_summary_for_log()}')
     # plot network  
     # name of current "phase" (of the course), the one associated to this script:
     # a multi-zone (Eur.) Unit Commitment model
@@ -249,7 +249,7 @@ def solve_pypsa_network_model(pypsa_model: PypsaModel, year: int, n_countries: i
                                           save_explicit_consts_corresp=save_explicit_corresp_for_lp_elts)
     # Get optim. pb main characteristics (to check if coherent with resolution time?!)
     optim_pb_characts = pypsa_model.get_optim_pb_characteristics()
-    logging.info(f'Corresp. to solved {str(optim_pb_characts)}')
+    logging.info(f'Corresponding to solved {str(optim_pb_characts)}')
     return result
 
 
@@ -440,6 +440,10 @@ def run(network_name: str = 'my little europe', solver_params: SolverParams = No
                                      json_params_filepath=json_params_filepath)
     )
 
+    # for following logs to be adapted to team name
+    if uc_run_params.team is not None:
+        network_name = uc_run_params.team
+
     if fixed_uc_run_params is not None:
         uc_run_params = (
             apply_fixed_uc_run_params(uc_run_params=uc_run_params, fixed_uc_run_params=fixed_uc_run_params,
@@ -513,7 +517,10 @@ def run(network_name: str = 'my little europe', solver_params: SolverParams = No
 
     run_end = time.time()
 
-    logging.info(f'{TITLE_LOG_SEP} THE END of ERAA-PyPSA long-term UC simulation! '
+    run_complem_msg = f" for network {network_name}"
+    if uc_run_params.output_tag is not None:
+        run_complem_msg += f", with output tag {uc_run_params.output_tag}"
+    logging.info(f'{TITLE_LOG_SEP} THE END of ERAA-PyPSA long-term UC simulation{run_complem_msg}! '
                  f'(after {run_end - run_start:.2f}s) {TITLE_LOG_SEP}:\n{str(uc_summary_metrics)}')
     stop_logger()
     return uc_summary_metrics

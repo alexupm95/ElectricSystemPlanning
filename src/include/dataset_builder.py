@@ -19,6 +19,7 @@ import re
 from src.common.constants.countries import set_country_trigram, is_country_trigram, COUNTRIES_INITIALS
 from src.common.constants.env_dirs import OutputFolderNames
 from src.common.constants.links import set_link_name, get_bus_from_link_name, set_per_origin_bus_links_msg
+from src.common.constants.logs import GW_IN_LOG
 from src.common.constants.optimisation import OptimSolvers, DEFAULT_OPTIM_SOLVER_PARAMS, SolverParams, \
     OptimPbCharacteristics, OptimPbTypes, CustomConstraintDirection, ZoneAndTempProdSumConstraint, \
     CustomConstraintNames, set_sum_of_prod_const_name
@@ -34,7 +35,7 @@ from src.common.long_term_uc_io import (get_network_figure, FigNamesPrefix, get_
                                         set_full_lt_uc_output_folder)
 from src.include.uc_postprocessing import UCSummaryMetrics, UCOptimalSolution
 from src.utils.basic_utils import (lexico_compar_str, rm_elts_with_none_val, rm_elts_in_str, sort_lexicographically,
-                                   format_with_spaces, get_default_values)
+                                   format_with_spaces, get_default_values, dict_to_str)
 from src.utils.dir_utils import make_dir
 from src.utils.pypsa_utils import get_network_obj_value, from_xarray_to_dict
 from src.utils.serializer import array_serializer
@@ -722,6 +723,41 @@ class PypsaModel:
                                                                      storage_dim=storage_dim)
             self.network.model.add_constraints(hydro_gen_var_sel >= generation_min_array, name="hydro_gen_min")
             self.network.model.add_constraints(hydro_gen_var_sel <= generation_max_array, name="hydro_gen_max")
+
+    def network_summary_for_log(self) -> str:
+        """
+        Log the main characteristics of a PyPSA network.
+        """
+        log_msg = "=== Network summary ==="
+        n = self.network
+        # Snapshots
+        log_msg += f"\nSnapshots (time-slots): {len(n.snapshots)} ({n.snapshots.min()} -> {n.snapshots.max()})"
+        # Components
+        log_msg += f"\nBuses: {len(n.buses)}"
+        log_msg += f"\nGenerators: {len(n.generators)}"
+        log_msg += f"\nLoads: {len(n.loads)}"
+        log_msg += f"\nStorage units: {len(n.storage_units)}"
+        log_msg += f"\nLinks: {len(n.links)}"
+        # Technologies
+        if "carrier" in n.generators.columns:
+            per_carrier_generators_capa = (
+                n.generators.groupby("carrier").p_nom.sum().sort_values(ascending=False).to_dict())
+            if GW_IN_LOG:
+                capa_unit = "GW"
+                per_carrier_generators_capa = \
+                    {elt_carrier: capa / 1e3 for elt_carrier, capa in per_carrier_generators_capa.items()}
+            else:
+                capa_unit = "MW"
+            # values associated to carrier "ac" at this stage are corresponding to failure fictive assets
+            per_carrier_generators_capa["failure"] = per_carrier_generators_capa.pop("ac")
+            total_capa = sum(per_carrier_generators_capa.values())
+            total_capa_wo_failure = total_capa - per_carrier_generators_capa["failure"]
+            log_msg += (f"\nGenerator capacities (in {capa_unit}) by carrier:"
+                        f"\n{dict_to_str(d=per_carrier_generators_capa, nbers_with_spaces=True, decimals=2)}\n-> total "
+                        f"of {format_with_spaces(number=total_capa, decimals=2)} "
+                        f"(resp. {format_with_spaces(number=total_capa_wo_failure, decimals=2)} without failure units)")
+        log_msg += "\n" + 21 * "="
+        return log_msg
 
     def get_n_time_slots(self) -> int:
         return len(self.network.snapshots)

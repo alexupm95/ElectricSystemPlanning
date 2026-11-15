@@ -1,7 +1,7 @@
 {
   "biomass": {
-    "marginal_cost": 1,
-    "co2_emissions": 3.14
+    "marginal_cost": null,
+    "co2_emissions": null
   },
   "coal": {
     "marginal_cost": null,
