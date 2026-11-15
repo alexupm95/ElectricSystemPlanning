@@ -150,26 +150,26 @@ The ones in folder [input/long_term_uc](../../input/long_term_uc/); **file by fi
     - (optional) <span style="color:#32B032; font-weight:bold">uc_period_end</span>: idem, **end of period; same format** (<span style="color:#257cbd; font-weight:bold">string</span>). 
   
       Default: period of 9 days starting from <span style="color:#32B032; font-weight:bold">uc_period_start</span>, which consists in considering a week with 2 days of "ring guard" (to avoid "end-of-the-world" effects).
-    - <span style="color:#32B032; font-weight:bold">failure_power_capa</span>: **capacity of the failure - fictive - asset** considered (<span style="color:#257cbd; font-weight:bold">non-negative float</span>). 
+    - <span style="color:#32B032; font-weight:bold">failure_power_capa</span>: **capacity of the failure - fictive - asset** considered (<span style="color:#257cbd; font-weight:bold">non-negative float</span>, MW). 
   
       N.B. Common to all countries.
-    - <span style="color:#32B032; font-weight:bold">failure_penalty</span>: **failure asset variable cost**, or more standardly "penalty" (<span style="color:#257cbd; font-weight:bold">non-negative float</span>). 
+    - <span style="color:#32B032; font-weight:bold">failure_penalty</span>: **failure asset variable cost**, or more standardly "penalty" (<span style="color:#257cbd; font-weight:bold">non-negative float</span>, €/MWh). 
   
       N.B. Typically set to a "very big" value, so that this asset be used as a last recourse - i.e. after having used all other production units at maximal power available.
-    - <span style="color:#32B032; font-weight:bold">interco_capas_tb_overwritten</span>: **values for the interconnection capacities**; to be used to overwrite - or complete - ERAA data (<span style="color:#257cbd; font-weight:bold">dictionary</span> with <span style="color:#257cbd; font-weight:bold">str</span> keys and <span style="color:#257cbd; font-weight:bold">non-negative float</span> values, with keys under format {origin country}2{destination country}). 
+    - <span style="color:#32B032; font-weight:bold">interco_capas_tb_overwritten</span>: **values for the interconnection capacities**; to be used to overwrite - or complete - ERAA data (<span style="color:#257cbd; font-weight:bold">dictionary</span> with <span style="color:#257cbd; font-weight:bold">str</span> keys and <span style="color:#257cbd; font-weight:bold">non-negative float</span> values in MW, with keys under format {origin country}2{destination country}). 
   
       Ex:  
       ```json
-      {"france2poland": 10, "france2scandinavia": 0, "italy2iberian-peninsula": 0} 
+      {"france2poland": 10000, "france2scandinavia": 0, "italy2iberian-peninsula": 0} 
       ```
 
       will set interconnection capacity from France to Poland to 10GW (very fictive!) and from France to both Scandinavia et Iberian-Peninsula to 0GW. Note that regarding the France to Scandinavia link this value will be useless as there is no ERAA data associated to this link; in turn our code already used 0GW as the value.
-    - (optional) <span style="color:#32B032; font-weight:bold">output_tag</span>: to **add a tag to the obtained data/figure** output folders. 
+    - (optional) <span style="color:#32B032; font-weight:bold">output_tag</span>: to **add a tag to the obtained data/figure** output folders (<span style="color:#257cbd; font-weight:bold">string</span>, MW). 
       
       Default: no tag, in this case a previous run results may be overwritten.
       
       Ex: if <span style="color:#32B032; font-weight:bold">output_tag</span>="preliminar", data (resp. figure) results will be obtained in "data_preliminar" (resp. "figures_preliminar") subfolders.
-    - (optional) <span style="color:#32B032; font-weight:bold">add_run_idx_tag_to_output</span>: to **add a tag indicating the run index** to the obtained data (resp. figure) output folders. 
+    - (optional) <span style="color:#32B032; font-weight:bold">add_run_idx_tag_to_output</span>: to **add a tag indicating the run index** to the obtained data (resp. figure) output folders (<span style="color:#257cbd; font-weight:bold">boolean</span>). 
    
       Default: no such index, in this case a previous run results may be overwritten.
 
