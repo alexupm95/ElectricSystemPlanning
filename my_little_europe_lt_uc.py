@@ -210,7 +210,7 @@ def create_pypsa_network_model(name: str, uc_run_params: UCRunParams, eraa_datas
     if with_sum_of_prod_custom_const:
         for sum_prod_const in uc_run_params.sum_prod_constraints:
             pypsa_model.add_sum_of_prod_custom_const(prod_sum_const=sum_prod_const)
-    logging.info(f'PyPSA network main properties: {pypsa_model.network}')
+    logging.info(f'PyPSA network main properties: {pypsa_model.network}\n{pypsa_model.network_summary_for_log()}')
     # plot network  
     # name of current "phase" (of the course), the one associated to this script:
     # a multi-zone (Eur.) Unit Commitment model
@@ -249,7 +249,7 @@ def solve_pypsa_network_model(pypsa_model: PypsaModel, year: int, n_countries: i
                                           save_explicit_consts_corresp=save_explicit_corresp_for_lp_elts)
     # Get optim. pb main characteristics (to check if coherent with resolution time?!)
     optim_pb_characts = pypsa_model.get_optim_pb_characteristics()
-    logging.info(f'Corresp. to solved {str(optim_pb_characts)}')
+    logging.info(f'Corresponding to solved {str(optim_pb_characts)}')
     return result
 
 
