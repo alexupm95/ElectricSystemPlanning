@@ -9,18 +9,29 @@ This document describes how the **Investment Runner** (`main_runner.py`) works. 
 ## 1. Operating Principle
 
 The runner can operate with two data sources:
-- **TXT mode (default)**: collects investment text files from student groups (e.g., `input/runner/france.txt`, `input/runner/germany.txt`, `input/runner/italy.txt`...), parses them, and automatically updates the corresponding `input/long_term_uc/countries/{country}.json` files.
-- **JSON mode**: directly uses the pre-existing country JSON files in `input/long_term_uc/countries/{country}.json` without rewriting them or looking for text files.
+- **TXT mode (default)**: collects investment text files from student groups (e.g., `input/runner/france_europe1.txt`, `input/runner/france_europe2.txt`...), parses them, and automatically updates the corresponding `input/long_term_uc/countries/{country}.json` files.
+- **JSON mode**: uses country JSON files (e.g., `input/runner/france_europe1.json`, `input/runner/france_europe2.json`, or in `input/long_term_uc/countries/`).
 
-In both modes, the `main_runner.py` script:
+### Dual Europe Support (Europe 1 & Europe 2)
+The runner supports two European configurations or competing scenario mixes:
+- Filename pattern: `{country}_europe1.{txt|json}` and `{country}_europe2.{txt|json}`.
+- If both `europe1` and `europe2` are present, the runner:
+  1. Configures and simulates **Europe 1**.
+  2. Configures and simulates **Europe 2**.
+  3. Displays a comprehensive **Comparative Dashboard** in the terminal (System Cost, OPEX, CAPEX, €/MWh, CO2, ENS, Failure Hours, with Δ and % differences).
+  4. Automatically saves the comparative results to:
+     - `output/long_term_uc/comparison_europe1_vs_europe2.txt` (formatted text table)
+     - `output/long_term_uc/comparison_europe1_vs_europe2.json` (machine-readable metrics)
+- If only one Europe is present (or without suffix), the runner executes that single Europe and displays the standard dashboard.
+
+In all cases, the `main_runner.py` script:
    - Discovers and validates files for each country (non-negative capacities in MW).
    - In TXT mode: updates the `input/long_term_uc/countries/{country}.json` files.
-   - In JSON mode: loads capacities directly from existing JSON files without modifying them.
    - Automatically configures `elec-europe_params_to-be-modif.json`:
      - Enforces **`mode: "europe"`**: each country takes the capacities defined by its JSON file and cross-border interconnected exchanges are simulated.
      - Enforces the **full-year simulation horizon** (`"uc_period_start": "1900/1/1"`, `"uc_period_end": "1901/1/1"`, 8,760 hours), ensuring both OPEX and CAPEX are expressed on the same annual basis (M€/year).
    - Executes the European unit commitment optimization simulation (`my_little_europe_lt_uc.py`).
-   - Displays a comparative summary table for every European country and for Europe as a whole (ENS, failure hours, total cost, CO2 emissions), highlighting countries updated during the session.
+   - Displays a comparative summary table for every European country and for Europe as a whole (ENS, failure hours, total cost, CO2 emissions).
 
 ---
 

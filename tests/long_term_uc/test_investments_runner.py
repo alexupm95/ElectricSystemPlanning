@@ -22,6 +22,16 @@ from src.include_runner.investments_runner import (
     calc_crf,
     calc_annualized_capex_per_mw,
     compute_country_annualized_capex,
+    extract_europe_id,
+    extract_country_and_europe,
+    group_files_by_europe,
+    group_files_by_europe_with_sources,
+    find_new_summary_file,
+    extract_simulation_metrics,
+    compute_europe_comparison,
+    format_comparison_table,
+    display_europe_comparison,
+    save_comparison_results,
 )
 from src.utils.read import read_and_check_uc_run_params, read_usage_params
 
@@ -283,6 +293,7 @@ class TestInvestmentsRunnerEuropeModeExclusivity:
         assert "france" in captured
 
     def test_read_and_check_uc_run_params_in_europe_mode(self):
+        update_europe_params(mode="europe")
         usage_params = read_usage_params()
         eraa_descr, uc_params = read_and_check_uc_run_params(
             phase_name=EnvPhaseNames.multizones_uc_model,
@@ -356,5 +367,243 @@ class TestMainRunnerCli:
 
         monkeypatch.setattr(sys, "argv", ["main_runner.py", "--source", "json", "--dry-run", "--no-summary"])
         main()
+
+    def test_main_runner_dry_run_dual_europe(self, monkeypatch):
+        import sys
+        from main_runner import main
+
+        monkeypatch.setattr(sys, "argv", ["main_runner.py", "--dry-run", "--no-summary"])
+        main()
+
+    def test_main_runner_filter_europe1(self, monkeypatch):
+        import sys
+        from main_runner import main
+
+        monkeypatch.setattr(sys, "argv", ["main_runner.py", "--europe", "europe1", "--dry-run", "--no-summary"])
+        main()
+
+    def test_main_runner_filter_europe2(self, monkeypatch):
+        import sys
+        from main_runner import main
+
+        monkeypatch.setattr(sys, "argv", ["main_runner.py", "--europe", "europe2", "--dry-run", "--no-summary"])
+        main()
+
+
+class TestDualEuropeParsing:
+    def test_extract_europe_id_from_filename(self):
+        assert extract_europe_id("france_europe1.txt") == "europe1"
+        assert extract_europe_id("germany_europe2.txt") == "europe2"
+        assert extract_europe_id("italy_europe_1.json") == "europe1"
+        assert extract_europe_id("poland_europe-2.json") == "europe2"
+        assert extract_europe_id("benelux_eur1.txt") == "europe1"
+        assert extract_europe_id("scandinavia_eur2.txt") == "europe2"
+        assert extract_europe_id("france.txt", default_europe="europe1") == "europe1"
+
+    def test_extract_europe_id_from_file_content(self):
+        with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False) as tmp:
+            tmp.write("country: france\neurope: europe2\nnuclear: 50000\n")
+            tmp_path = tmp.name
+
+        try:
+            assert extract_europe_id(tmp_path) == "europe2"
+        finally:
+            if os.path.isfile(tmp_path):
+                os.remove(tmp_path)
+
+    def test_extract_country_and_europe(self):
+        with tempfile.NamedTemporaryFile("w+", suffix=".txt", delete=False) as tmp:
+            tmp.write("country: germany\ngas: 20000\n")
+            tmp_path = tmp.name
+
+        try:
+            country, eur = extract_country_and_europe(tmp_path, default_europe="europe1")
+            assert country == "germany"
+            assert eur == "europe1"
+        finally:
+            if os.path.isfile(tmp_path):
+                os.remove(tmp_path)
+
+    def test_group_files_by_europe(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            f1 = os.path.join(tmpdir, "france_europe1.txt")
+            f2 = os.path.join(tmpdir, "france_europe2.txt")
+            f3 = os.path.join(tmpdir, "germany_europe1.txt")
+
+            with open(f1, "w") as fp:
+                fp.write("country: france\nnuclear: 60000\n")
+            with open(f2, "w") as fp:
+                fp.write("country: france\nnuclear: 50000\n")
+            with open(f3, "w") as fp:
+                fp.write("country: germany\nwind_onshore: 65000\n")
+
+            grouped = group_files_by_europe([f1, f2, f3])
+            assert "europe1" in grouped
+            assert "europe2" in grouped
+            assert "france" in grouped["europe1"]
+            assert "germany" in grouped["europe1"]
+            assert "france" in grouped["europe2"]
+            assert grouped["europe1"]["france"]["nuclear"] == 60000.0
+            assert grouped["europe2"]["france"]["nuclear"] == 50000.0
+
+
+class TestComparativeAnalysisAndReporting:
+    def test_extract_simulation_metrics(self):
+        mock_summary = {
+            "total_cost": 10000.0,
+            "total_operational_cost": 8000.0,
+            "total_co2_emissions": 40.0,
+            "per_country_ens": {"fra": 0.0, "ger": 0.0},
+            "per_country_n_failure_hours": {"fra": 0.0, "ger": 0.0},
+            "per_country_total_cost": {"fra": 4000.0, "ger": 6000.0},
+            "per_country_total_operational_cost": {"fra": 3200.0, "ger": 4800.0},
+            "per_country_co2_emissions": {"fra": 5.0, "ger": 35.0},
+            "per_country_production": {"fra": 350000.0, "ger": 450000.0},
+        }
+        mock_capas = {
+            "france": {"nuclear": 60000.0},
+            "germany": {"wind_onshore": 60000.0},
+        }
+
+        metrics = extract_simulation_metrics(
+            summary_data=mock_summary,
+            per_country_capacities=mock_capas,
+            countries=["france", "germany"],
+        )
+        assert metrics["total_operational_cost_m_yr"] == 8000.0
+        assert metrics["total_co2_emissions_mt"] == 40.0
+        assert metrics["total_production_twh"] == 800.0
+        assert "france" in metrics["per_country"]
+        assert "germany" in metrics["per_country"]
+
+    def test_compute_europe_comparison(self):
+        m1 = {
+            "total_cost_m_yr": 12000.0,
+            "total_operational_cost_m_yr": 8000.0,
+            "total_annualized_capex_m_yr": 4000.0,
+            "total_overnight_capex_b": 80.0,
+            "avg_cost_per_mwh": 75.0,
+            "total_co2_emissions_mt": 40.0,
+            "total_production_twh": 160.0,
+            "total_ens_mwh": 0.0,
+            "max_failure_hours": 0.0,
+            "per_country": {
+                "france": {
+                    "total_cost_m_yr": 5000.0,
+                    "opex_m_yr": 3000.0,
+                    "capex_m_yr": 2000.0,
+                    "co2_mt": 5.0,
+                    "ens_mwh": 0.0,
+                    "failure_hours": 0.0,
+                    "production_gwh": 400000.0,
+                    "cost_per_mwh": 12.5,
+                }
+            },
+        }
+        m2 = {
+            "total_cost_m_yr": 10800.0,
+            "total_operational_cost_m_yr": 7000.0,
+            "total_annualized_capex_m_yr": 3800.0,
+            "total_overnight_capex_b": 75.0,
+            "avg_cost_per_mwh": 67.5,
+            "total_co2_emissions_mt": 30.0,
+            "total_production_twh": 160.0,
+            "total_ens_mwh": 0.0,
+            "max_failure_hours": 0.0,
+            "per_country": {
+                "france": {
+                    "total_cost_m_yr": 4500.0,
+                    "opex_m_yr": 2600.0,
+                    "capex_m_yr": 1900.0,
+                    "co2_mt": 4.0,
+                    "ens_mwh": 0.0,
+                    "failure_hours": 0.0,
+                    "production_gwh": 400000.0,
+                    "cost_per_mwh": 11.25,
+                }
+            },
+        }
+
+        comparison = compute_europe_comparison(m1, m2)
+        assert comparison["global"]["total_cost_m_yr"]["delta"] == -1200.0
+        assert comparison["global"]["total_cost_m_yr"]["pct_change"] == -10.0
+        assert comparison["global"]["total_co2_emissions_mt"]["delta"] == -10.0
+        assert comparison["per_country"]["france"]["total_cost_m_yr"]["delta"] == -500.0
+
+    def test_format_comparison_table_and_display(self, capsys):
+        m1 = {
+            "total_cost_m_yr": 10000.0,
+            "total_operational_cost_m_yr": 6000.0,
+            "total_annualized_capex_m_yr": 4000.0,
+            "total_overnight_capex_b": 80.0,
+            "avg_cost_per_mwh": 70.0,
+            "total_co2_emissions_mt": 50.0,
+            "total_production_twh": 150.0,
+            "total_ens_mwh": 0.0,
+            "max_failure_hours": 0.0,
+            "per_country": {
+                "france": {
+                    "total_cost_m_yr": 4000.0,
+                    "opex_m_yr": 2500.0,
+                    "capex_m_yr": 1500.0,
+                    "co2_mt": 5.0,
+                    "ens_mwh": 0.0,
+                    "failure_hours": 0.0,
+                    "production_gwh": 300000.0,
+                    "cost_per_mwh": 13.3,
+                }
+            },
+        }
+        m2 = {
+            "total_cost_m_yr": 9500.0,
+            "total_operational_cost_m_yr": 5800.0,
+            "total_annualized_capex_m_yr": 3700.0,
+            "total_overnight_capex_b": 75.0,
+            "avg_cost_per_mwh": 65.0,
+            "total_co2_emissions_mt": 40.0,
+            "total_production_twh": 150.0,
+            "total_ens_mwh": 0.0,
+            "max_failure_hours": 0.0,
+            "per_country": {
+                "france": {
+                    "total_cost_m_yr": 3800.0,
+                    "opex_m_yr": 2400.0,
+                    "capex_m_yr": 1400.0,
+                    "co2_mt": 4.0,
+                    "ens_mwh": 0.0,
+                    "failure_hours": 0.0,
+                    "production_gwh": 300000.0,
+                    "cost_per_mwh": 12.6,
+                }
+            },
+        }
+        comparison = compute_europe_comparison(m1, m2)
+        report = format_comparison_table(m1, m2, comparison)
+        display_europe_comparison(report)
+
+        captured = capsys.readouterr().out
+        assert "COMPARATIVE DASHBOARD: EUROPE 1 vs EUROPE 2" in captured
+        assert "Total System Cost (OPEX+CAPEX)" in captured
+        assert "PER-COUNTRY COMPARISON" in captured
+        assert "france" in captured
+
+    def test_save_comparison_results(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            comp_mock = {"global": {"total_cost_m_yr": {"delta": -500.0}}}
+            txt_report = "Mock Comparative Report Content"
+            txt_p, json_p = save_comparison_results(
+                comparison_data=comp_mock,
+                formatted_report=txt_report,
+                output_dir=tmpdir,
+                filename_prefix="test_comp",
+            )
+            assert os.path.isfile(txt_p)
+            assert os.path.isfile(json_p)
+            with open(txt_p, "r", encoding="utf-8") as f:
+                assert f.read() == txt_report
+            with open(json_p, "r", encoding="utf-8") as f:
+                loaded = json.load(f)
+                assert loaded["global"]["total_cost_m_yr"]["delta"] == -500.0
+
 
 

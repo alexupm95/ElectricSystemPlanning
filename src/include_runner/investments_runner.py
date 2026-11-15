@@ -198,6 +198,66 @@ def parse_capacity_value(val_str: str) -> float:
     return val
 
 
+def extract_europe_id(filepath_or_name: str, default_europe: str = "europe1") -> str:
+    """
+    Extract Europe identifier ('europe1' or 'europe2') from a filename or its contents.
+    Supported patterns in filename:
+        france_europe1.txt -> 'europe1'
+        france_europe2.txt -> 'europe2'
+        germany_europe_1.json -> 'europe1'
+        germany_eur2.json -> 'europe2'
+    If not specified in filename or file contents, defaults to default_europe.
+    """
+    basename = os.path.basename(filepath_or_name)
+    stem = os.path.splitext(basename)[0].lower()
+
+    if re.search(r"(?:^|[_\-\s])(?:europe[_\-\s]*2|eur[_\-\s]*2)(?:[_\-\s]|$)", stem):
+        return "europe2"
+    if re.search(r"(?:^|[_\-\s])(?:europe[_\-\s]*1|eur[_\-\s]*1)(?:[_\-\s]|$)", stem):
+        return "europe1"
+
+    # Inspect file content if available
+    if os.path.isfile(filepath_or_name):
+        try:
+            if filepath_or_name.endswith(".json"):
+                with open(filepath_or_name, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    val = data.get("europe") or data.get("europe_id") or data.get("scenario")
+                    if val:
+                        val_str = str(val).strip().lower()
+                        if "2" in val_str:
+                            return "europe2"
+                        if "1" in val_str:
+                            return "europe1"
+            else:
+                with open(filepath_or_name, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith("#") or line.startswith("//"):
+                            continue
+                        if ":" in line or "=" in line:
+                            sep = ":" if ":" in line else "="
+                            parts = line.split(sep, 1)
+                            key = parts[0].strip().lower()
+                            if key in ("europe", "europe_id", "scenario"):
+                                val_str = parts[1].strip().lower()
+                                if "2" in val_str:
+                                    return "europe2"
+                                if "1" in val_str:
+                                    return "europe1"
+        except Exception:
+            pass
+
+    return default_europe
+
+
+def extract_country_and_europe(filepath: str, default_europe: str = "europe1") -> Tuple[str, str]:
+    """Extract country name and Europe identifier for an investment file."""
+    country, _ = load_country_capacities(filepath=filepath)
+    europe_id = extract_europe_id(filepath_or_name=filepath, default_europe=default_europe)
+    return country, europe_id
+
+
 def parse_investment_file(filepath: str, country: Optional[str] = None) -> Tuple[str, Dict[str, float]]:
     """
     Parse a student investment text file.
@@ -218,6 +278,13 @@ def parse_investment_file(filepath: str, country: Optional[str] = None) -> Tuple
         if c in stem:
             file_country = c
             break
+
+    if not file_country:
+        tokens = re.split(r"[_\-\s.]+", stem)
+        for token in tokens:
+            if token in COUNTRY_ALIASES:
+                file_country = COUNTRY_ALIASES[token]
+                break
 
     capacities: Dict[str, float] = {}
 
@@ -287,6 +354,12 @@ def parse_country_json_file(filepath: str, country: Optional[str] = None) -> Tup
             if c in stem:
                 file_country = c
                 break
+        if not file_country:
+            tokens = re.split(r"[_\-\s.]+", stem)
+            for token in tokens:
+                if token in COUNTRY_ALIASES:
+                    file_country = COUNTRY_ALIASES[token]
+                    break
 
     resolved_country = country or file_country
     if not resolved_country:
@@ -320,6 +393,44 @@ def load_country_capacities(filepath: str, country: Optional[str] = None) -> Tup
     if filepath.endswith(".json"):
         return parse_country_json_file(filepath=filepath, country=country)
     return parse_investment_file(filepath=filepath, country=country)
+
+
+def group_files_by_europe(
+    filepaths: List[str],
+    default_europe: str = "europe1",
+) -> Dict[str, Dict[str, Dict[str, float]]]:
+    """
+    Groups collected investment files by Europe identifier ('europe1', 'europe2', ...).
+    Returns:
+        {europe_id: {country: {asset: capacity}}}
+    """
+    grouped_capas, _ = group_files_by_europe_with_sources(filepaths, default_europe=default_europe)
+    return grouped_capas
+
+
+def group_files_by_europe_with_sources(
+    filepaths: List[str],
+    default_europe: str = "europe1",
+) -> Tuple[Dict[str, Dict[str, Dict[str, float]]], Dict[str, Dict[str, str]]]:
+    """
+    Groups collected investment files by Europe identifier and tracks file sources.
+    Returns:
+        (grouped_capacities, grouped_sources)
+        where:
+        grouped_capacities: {europe_id: {country: capacities}}
+        grouped_sources: {europe_id: {country: filepath}}
+    """
+    grouped_capas: Dict[str, Dict[str, Dict[str, float]]] = {}
+    grouped_srcs: Dict[str, Dict[str, str]] = {}
+    for fpath in filepaths:
+        country, capacities = load_country_capacities(filepath=fpath)
+        europe_id = extract_europe_id(filepath_or_name=fpath, default_europe=default_europe)
+        if europe_id not in grouped_capas:
+            grouped_capas[europe_id] = {}
+            grouped_srcs[europe_id] = {}
+        grouped_capas[europe_id][country] = capacities
+        grouped_srcs[europe_id][country] = fpath
+    return grouped_capas, grouped_srcs
 
 
 def collect_investment_files(target: Union[str, List[str]], extension: str = ".txt") -> List[str]:
@@ -475,6 +586,16 @@ def find_latest_summary_file(output_base_dir: str = "output/long_term_uc") -> Op
         return None
     files.sort(key=os.path.getmtime, reverse=True)
     return files[0]
+
+
+def find_new_summary_file(before_files: set, output_base_dir: str = "output/long_term_uc") -> Optional[str]:
+    """Find the summary file created after before_files was captured."""
+    pattern = os.path.join(output_base_dir, "**", "uc-summary_*.json")
+    current_files = set(glob.glob(pattern, recursive=True))
+    new_files = current_files - before_files
+    if new_files:
+        return sorted(list(new_files), key=os.path.getmtime, reverse=True)[0]
+    return find_latest_summary_file(output_base_dir=output_base_dir)
 
 
 # Mapping of model prod types to technology.json keys
@@ -749,3 +870,297 @@ def run_simulation(script_path: str = "my_little_europe_lt_uc.py") -> int:
     logging.info(f"Running simulation: {' '.join(cmd)}")
     result = subprocess.run(cmd)
     return result.returncode
+
+
+def extract_simulation_metrics(
+    summary_data: dict,
+    per_country_capacities: Optional[Dict[str, Dict[str, float]]] = None,
+    summary_file_path: Optional[str] = None,
+    countries: Optional[List[str]] = None,
+) -> dict:
+    """
+    Extract standardized European and per-country metrics from summary_data.
+    """
+    display_countries = countries if countries is not None else AVAILABLE_COUNTRIES
+
+    total_op_cost = float(summary_data.get("total_operational_cost", 0.0))
+    total_co2 = float(summary_data.get("total_co2_emissions", 0.0))
+
+    per_country_ens = summary_data.get("per_country_ens", {}) or {}
+    per_country_fail_h = summary_data.get("per_country_n_failure_hours", {}) or {}
+    per_country_cost = summary_data.get("per_country_total_cost", {}) or {}
+    per_country_op_cost = summary_data.get("per_country_total_operational_cost", {}) or {}
+    per_country_co2 = summary_data.get("per_country_co2_emissions", {}) or {}
+
+    per_country_prod = summary_data.get("per_country_production", {}) or {}
+    if not per_country_prod and summary_file_path:
+        per_country_prod = get_production_from_opt_power_csv(summary_file_path=summary_file_path)
+
+    total_ens = sum(float(v) for v in per_country_ens.values()) if per_country_ens else 0.0
+    max_fail_h = max(float(v) for v in per_country_fail_h.values()) if per_country_fail_h else 0.0
+
+    total_europe_capex_m_yr = 0.0
+    total_europe_overnight_b = 0.0
+    total_europe_opex = 0.0
+    total_europe_prod_gwh = 0.0
+
+    per_country_metrics: Dict[str, dict] = {}
+
+    for country in sorted(display_countries):
+        tri = set_country_trigram(country)
+        ens = float(per_country_ens.get(tri, per_country_ens.get(country, 0.0)))
+        fail_h = float(per_country_fail_h.get(tri, per_country_fail_h.get(country, 0.0)))
+
+        opex = float(per_country_op_cost.get(tri, per_country_op_cost.get(country, per_country_cost.get(tri, per_country_cost.get(country, 0.0)))))
+        total_europe_opex += opex
+
+        country_capas = {}
+        if per_country_capacities and country in per_country_capacities:
+            country_capas = per_country_capacities[country]
+        else:
+            country_capas = get_country_capacities_from_json(country=country)
+
+        overnight_eur, annualized_eur = compute_country_annualized_capex(capacities=country_capas)
+        capex_m_yr = annualized_eur / 1e6
+        overnight_b = overnight_eur / 1e9
+
+        total_europe_capex_m_yr += capex_m_yr
+        total_europe_overnight_b += overnight_b
+
+        total_m_yr = opex + capex_m_yr
+        raw_co2 = float(per_country_co2.get(tri, per_country_co2.get(country, 0.0)))
+        # CO2 emissions in UCSummaryMetrics are in ktCO2eq. Convert to Mt if in kt (> 500)
+        co2 = (raw_co2 / 1000.0) if raw_co2 > 500.0 else raw_co2
+
+        prod_gwh = float(per_country_prod.get(tri, per_country_prod.get(country, 0.0)))
+        total_europe_prod_gwh += prod_gwh
+        cost_per_mwh = (total_m_yr * 1000.0) / prod_gwh if prod_gwh > 0 else 0.0
+
+        per_country_metrics[country] = {
+            "ens_mwh": ens,
+            "failure_hours": fail_h,
+            "opex_m_yr": opex,
+            "capex_m_yr": capex_m_yr,
+            "total_cost_m_yr": total_m_yr,
+            "cost_per_mwh": cost_per_mwh,
+            "co2_mt": co2,
+            "production_gwh": prod_gwh,
+        }
+
+    display_europe_opex = total_op_cost if total_op_cost > 0 else total_europe_opex
+    total_europe_cost = display_europe_opex + total_europe_capex_m_yr
+    avg_cost_mwh = (total_europe_cost * 1000.0) / total_europe_prod_gwh if total_europe_prod_gwh > 0 else 0.0
+
+    total_co2_raw = float(summary_data.get("total_co2_emissions", 0.0))
+    total_co2_mt = (total_co2_raw / 1000.0) if total_co2_raw > 500.0 else total_co2_raw
+
+    return {
+        "summary_file": summary_file_path,
+        "total_cost_m_yr": total_europe_cost,
+        "total_operational_cost_m_yr": display_europe_opex,
+        "total_annualized_capex_m_yr": total_europe_capex_m_yr,
+        "total_overnight_capex_b": total_europe_overnight_b,
+        "avg_cost_per_mwh": avg_cost_mwh,
+        "total_co2_emissions_mt": total_co2_mt,
+        "total_production_gwh": total_europe_prod_gwh,
+        "total_production_twh": total_europe_prod_gwh / 1000.0,
+        "total_ens_mwh": total_ens,
+        "max_failure_hours": max_fail_h,
+        "per_country": per_country_metrics,
+    }
+
+
+def compute_europe_comparison(metrics_eur1: dict, metrics_eur2: dict) -> dict:
+    """
+    Compute delta (Eur2 - Eur1) and relative change (%) between Europe 1 and Europe 2.
+    """
+    def _diff(val1: float, val2: float) -> dict:
+        delta = val2 - val1
+        pct = ((val2 - val1) / val1 * 100.0) if abs(val1) > 1e-6 else (0.0 if abs(val2) < 1e-6 else None)
+        return {"eur1": val1, "eur2": val2, "delta": delta, "pct_change": pct}
+
+    global_keys = [
+        "total_cost_m_yr",
+        "total_operational_cost_m_yr",
+        "total_annualized_capex_m_yr",
+        "total_overnight_capex_b",
+        "avg_cost_per_mwh",
+        "total_co2_emissions_mt",
+        "total_production_twh",
+        "total_ens_mwh",
+        "max_failure_hours",
+    ]
+
+    global_diffs = {}
+    for k in global_keys:
+        v1 = float(metrics_eur1.get(k, 0.0))
+        v2 = float(metrics_eur2.get(k, 0.0))
+        global_diffs[k] = _diff(v1, v2)
+
+    countries = sorted(list(set(metrics_eur1.get("per_country", {}).keys()) | set(metrics_eur2.get("per_country", {}).keys())))
+    country_diffs = {}
+    for c in countries:
+        c1 = metrics_eur1.get("per_country", {}).get(c, {})
+        c2 = metrics_eur2.get("per_country", {}).get(c, {})
+        country_diffs[c] = {
+            "total_cost_m_yr": _diff(c1.get("total_cost_m_yr", 0.0), c2.get("total_cost_m_yr", 0.0)),
+            "opex_m_yr": _diff(c1.get("opex_m_yr", 0.0), c2.get("opex_m_yr", 0.0)),
+            "capex_m_yr": _diff(c1.get("capex_m_yr", 0.0), c2.get("capex_m_yr", 0.0)),
+            "co2_mt": _diff(c1.get("co2_mt", 0.0), c2.get("co2_mt", 0.0)),
+            "ens_mwh": _diff(c1.get("ens_mwh", 0.0), c2.get("ens_mwh", 0.0)),
+            "failure_hours": _diff(c1.get("failure_hours", 0.0), c2.get("failure_hours", 0.0)),
+            "production_gwh": _diff(c1.get("production_gwh", 0.0), c2.get("production_gwh", 0.0)),
+            "cost_per_mwh": _diff(c1.get("cost_per_mwh", 0.0), c2.get("cost_per_mwh", 0.0)),
+        }
+
+    return {
+        "global": global_diffs,
+        "per_country": country_diffs,
+        "europe1_summary_file": metrics_eur1.get("summary_file"),
+        "europe2_summary_file": metrics_eur2.get("summary_file"),
+    }
+
+
+def format_comparison_table(
+    metrics_eur1: dict,
+    metrics_eur2: dict,
+    comparison: dict,
+    eur1_label: str = "Europe 1",
+    eur2_label: str = "Europe 2",
+) -> str:
+    """Format a comprehensive comparative dashboard into a string."""
+    lines = []
+    width = 133
+    sep = "=" * width
+    thin_sep = "-" * width
+
+    title = f"COMPARATIVE DASHBOARD: {eur1_label.upper()} vs {eur2_label.upper()}"
+    lines.append("")
+    lines.append(sep)
+    lines.append(f"{title:^{width}}")
+    lines.append(sep)
+
+    lines.append("\n[1] GLOBAL EUROPE SYSTEM METRICS:")
+    lines.append(thin_sep)
+    hdr1 = f"{'METRIC':<48} | {eur1_label:>18} | {eur2_label:>18} | {'DELTA (E2-E1)':>20} | {'CHANGE (%)':>16}"
+    lines.append(hdr1)
+    lines.append(thin_sep)
+
+    def _fmt_pct(val):
+        if val is None:
+            return f"{'N/A':>16}"
+        sign = "+" if val > 0 else ""
+        return f"{sign}{val:>15.1f}%"
+
+    g = comparison.get("global", {})
+    metric_rows = [
+        ("Total System Cost (OPEX+CAPEX)", "total_cost_m_yr", "M€/yr", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("Operational Cost (OPEX)", "total_operational_cost_m_yr", "M€/yr", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("Annualized CAPEX", "total_annualized_capex_m_yr", "M€/yr", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("Total Overnight CAPEX", "total_overnight_capex_b", "B€", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("Average Electricity Cost", "avg_cost_per_mwh", "€/MWh", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("CO2 Emissions", "total_co2_emissions_mt", "Mt", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("Total Generation", "total_production_twh", "TWh", "{:>18,.2f}", "{:>+20,.2f}"),
+        ("Energy Not Served (ENS)", "total_ens_mwh", "MWh", "{:>18,.1f}", "{:>+20,.1f}"),
+        ("Loss of Load Max Duration", "max_failure_hours", "h", "{:>18.1f}", "{:>+20.1f}"),
+    ]
+
+    for label, key, unit, val_fmt, delta_fmt in metric_rows:
+        item = g.get(key, {})
+        v1 = item.get("eur1", 0.0)
+        v2 = item.get("eur2", 0.0)
+        delta = item.get("delta", 0.0)
+        pct = item.get("pct_change")
+        l_str = f"{label} ({unit})" if unit else label
+        v1_str = val_fmt.format(v1)
+        v2_str = val_fmt.format(v2)
+        d_str = delta_fmt.format(delta)
+        pct_str = _fmt_pct(pct)
+        lines.append(f"{l_str:<48} | {v1_str} | {v2_str} | {d_str} | {pct_str}")
+
+    lines.append(thin_sep)
+
+    lines.append("\n[2] PER-COUNTRY COMPARISON:")
+    lines.append(thin_sep)
+    hdr2 = (
+        f"{'COUNTRY':<18} | {'TOTAL SYSTEM COST (M€/yr)':^29} | {'CO2 EMISSIONS (Mt)':^24} | "
+        f"{'ENERGY NOT SERVED (MWh)':^26} | {'FAILURE HOURS (h)':^24}"
+    )
+    subhdr2 = (
+        f"{'':<18} | {'Eur 1':>8} | {'Eur 2':>8} | {'Delta':>7} | {'Eur 1':>6} | {'Eur 2':>6} | {'Delta':>6} | "
+        f"{'Eur 1':>7} | {'Eur 2':>7} | {'Delta':>6} | {'Eur 1':>6} | {'Eur 2':>6} | {'Delta':>6}"
+    )
+    sub_sep = (
+        f"{'-'*18}-+-{'-'*8}-+-{'-'*8}-+-{'-'*7}-+-{'-'*6}-+-{'-'*6}-+-{'-'*6}-+-"
+        f"{'-'*7}-+-{'-'*7}-+-{'-'*6}-+-{'-'*6}-+-{'-'*6}-+-{'-'*6}"
+    )
+    lines.append(hdr2)
+    lines.append(subhdr2)
+    lines.append(sub_sep)
+
+    c_diffs = comparison.get("per_country", {})
+    for country in sorted(c_diffs.keys()):
+        cd = c_diffs[country]
+        cost = cd.get("total_cost_m_yr", {})
+        co2 = cd.get("co2_mt", {})
+        ens = cd.get("ens_mwh", {})
+        fail = cd.get("failure_hours", {})
+
+        cost_e1 = f"{cost.get('eur1', 0.0):>8,.0f}"
+        cost_e2 = f"{cost.get('eur2', 0.0):>8,.0f}"
+        cost_d = f"{cost.get('delta', 0.0):>+7,.0f}"
+
+        # CO2 emissions in Mt: if raw values exceed 500 (e.g. from tests or raw inputs), divide by 1000
+        co2_val1 = co2.get('eur1', 0.0)
+        co2_val2 = co2.get('eur2', 0.0)
+        c1 = co2_val1 / 1000.0 if abs(co2_val1) > 500.0 else co2_val1
+        c2 = co2_val2 / 1000.0 if abs(co2_val2) > 500.0 else co2_val2
+        c_delta = c2 - c1
+        co2_e1 = f"{c1:>6.1f}"
+        co2_e2 = f"{c2:>6.1f}"
+        co2_d = f"{c_delta:>+6.1f}"
+
+        ens_e1 = f"{ens.get('eur1', 0.0):>7,.0f}"
+        ens_e2 = f"{ens.get('eur2', 0.0):>7,.0f}"
+        ens_d = f"{ens.get('delta', 0.0):>+6,.0f}"
+
+        fail_e1 = f"{fail.get('eur1', 0.0):>6,.0f}"
+        fail_e2 = f"{fail.get('eur2', 0.0):>6,.0f}"
+        fail_d = f"{fail.get('delta', 0.0):>+6,.0f}"
+
+        lines.append(
+            f"{country:<18} | {cost_e1} | {cost_e2} | {cost_d} | {co2_e1} | {co2_e2} | {co2_d} | "
+            f"{ens_e1} | {ens_e2} | {ens_d} | {fail_e1} | {fail_e2} | {fail_d}"
+        )
+
+    lines.append(sep)
+    return "\n".join(lines) + "\n"
+
+
+def display_europe_comparison(formatted_report: str) -> None:
+    """Print comparative report to console."""
+    print(formatted_report)
+
+
+def save_comparison_results(
+    comparison_data: dict,
+    formatted_report: str,
+    output_dir: str = "output/long_term_uc",
+    filename_prefix: str = "comparison_europe1_vs_europe2",
+) -> Tuple[str, str]:
+    """
+    Save the comparative results to both a text file and a JSON file.
+    Returns:
+        (txt_filepath, json_filepath)
+    """
+    os.makedirs(output_dir, exist_ok=True)
+    txt_path = os.path.join(output_dir, f"{filename_prefix}.txt")
+    json_path = os.path.join(output_dir, f"{filename_prefix}.json")
+
+    with open(txt_path, "w", encoding="utf-8") as f:
+        f.write(formatted_report)
+
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(comparison_data, f, indent=2, ensure_ascii=False)
+
+    return txt_path, json_path

@@ -2,36 +2,40 @@
 """
 Collective Energy Investment Runner - European Simulation (Exclusive Europe Mode).
 
-Collects investment choice files from student groups (one file per country in input/runner/ as .txt,
-or directly from input/long_term_uc/countries/ as .json), configures the model
-exclusively in "europe" mode, runs the unified simulation of the interconnected European grid,
-and displays a comparative dashboard of results by country.
+Collects investment choice files from student groups (e.g. france_europe1.txt, france_europe2.txt in input/runner/,
+or corresponding JSON files), configures the model exclusively in "europe" mode, runs the unified simulation
+for Europe 1 and Europe 2 sequentially, displays a comparative dashboard, and saves the comparison to disk.
 
 The runner operates exclusively in "europe" mode (solo mode is not supported by the runner).
 
 Usage:
-    # Standard execution: collect all country files in input/runner/ (.txt) and run European simulation:
+    # Standard execution: collect all files in input/runner/ (.txt) and run European simulations:
     python main_runner.py
     python main_runner.py txt
 
-    # JSON execution: use existing country files in input/long_term_uc/countries/ (.json):
+    # JSON execution: use JSON files in input/runner/ or input/long_term_uc/countries/ (.json):
     python main_runner.py json
     python main_runner.py --source json
 
-    # Preview mode (updates country .json files without solving in txt mode):
+    # Preview mode (updates country .json files without solving):
     python main_runner.py --dry-run
     python main_runner.py json --dry-run
+
+    # Execute only Europe 1 or Europe 2:
+    python main_runner.py --europe europe1
+    python main_runner.py --europe europe2
 
     # Specify a custom folder or files:
     python main_runner.py custom_folder/
 """
 
 import argparse
+import glob
 import json
 import logging
 import os
 import sys
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from src.include_runner.investments_runner import (
     AVAILABLE_COUNTRIES,
@@ -43,13 +47,85 @@ from src.include_runner.investments_runner import (
     update_europe_params,
     run_simulation,
     find_latest_summary_file,
+    find_new_summary_file,
     display_multi_country_summary,
+    group_files_by_europe_with_sources,
+    extract_simulation_metrics,
+    compute_europe_comparison,
+    format_comparison_table,
+    display_europe_comparison,
+    save_comparison_results,
 )
+
+
+def run_single_europe_simulation(
+    europe_name: str,
+    country_capacities: Dict[str, Dict[str, float]],
+    period_start: str,
+    period_end: str,
+    dry_run: bool = False,
+    output_base_dir: str = "output/long_term_uc",
+) -> Optional[dict]:
+    """
+    Configure and execute simulation for one European mix, returning extracted metrics.
+    """
+    countries = sorted(list(country_capacities.keys()))
+    print(f"\n--- [CONFIGURING {europe_name.upper()}] ({len(countries)} countries) ---")
+    for country in countries:
+        json_path = write_country_json(country=country, capacities=country_capacities[country])
+        print(f"      -> {json_path} updated ({len(country_capacities[country])} assets)")
+
+    # Update global parameters in elec-europe_params_to-be-modif.json
+    update_europe_params(
+        mode="europe",
+        team=countries[0],
+        period_start=period_start,
+        period_end=period_end,
+    )
+    print(
+        f"      -> Global parameters: mode='europe', full year period [{period_start} - {period_end}] "
+        f"activated in elec-europe_params_to-be-modif.json"
+    )
+
+    if dry_run:
+        print(f"      [INFO] --dry-run active for {europe_name}: files updated, solver not launched.")
+        return None
+
+    pattern = os.path.join(output_base_dir, "**", "uc-summary_*.json")
+    before_files = set(glob.glob(pattern, recursive=True))
+
+    print(f"\n[RUN] Launching simulation for {europe_name.upper()} (my_little_europe_lt_uc.py)...")
+    print("-" * 70)
+    return_code = run_simulation()
+    print("-" * 70)
+
+    if return_code != 0:
+        print(f"\n[!] Simulation for {europe_name} failed with non-zero exit code ({return_code}).", file=sys.stderr)
+        sys.exit(return_code)
+
+    summary_file = find_new_summary_file(before_files=before_files, output_base_dir=output_base_dir)
+    if not summary_file or not os.path.isfile(summary_file):
+        print(f"[!] Warning: No summary file found for {europe_name} run.")
+        return None
+
+    try:
+        with open(summary_file, "r", encoding="utf-8") as f:
+            summary_data = json.load(f)
+        metrics = extract_simulation_metrics(
+            summary_data=summary_data,
+            per_country_capacities=country_capacities,
+            summary_file_path=summary_file,
+            countries=AVAILABLE_COUNTRIES,
+        )
+        return metrics
+    except Exception as exc:
+        logging.warning(f"Error reading summary file {summary_file}: {exc}")
+        return None
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Collective Runner: collects student investments for all countries and executes the interconnected European simulation (exclusive Europe mode)."
+        description="Collective Runner: collects student investments for all countries and executes European simulation(s)."
     )
     parser.add_argument(
         "folder_or_files",
@@ -61,7 +137,13 @@ def main():
         "--source",
         choices=["txt", "json"],
         default=None,
-        help="Source format to use: 'txt' (input/runner/*.txt) or 'json' (input/long_term_uc/countries/*.json). Default: 'txt'",
+        help="Source format to use: 'txt' (input/runner/*.txt) or 'json' (input/runner/*.json). Default: 'txt'",
+    )
+    parser.add_argument(
+        "--europe",
+        choices=["all", "europe1", "europe2"],
+        default="all",
+        help="Specify which Europe to simulate: 'europe1', 'europe2', or 'all' (default: 'all')",
     )
     parser.add_argument(
         "--dry-run",
@@ -72,6 +154,11 @@ def main():
         "--no-summary",
         action="store_true",
         help="Do not display the comparative summary table at the end of simulation",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default="output/long_term_uc",
+        help="Directory where comparison reports will be saved (default: 'output/long_term_uc')",
     )
     parser.add_argument(
         "--period-start",
@@ -104,17 +191,14 @@ def main():
             source_mode = "txt"
 
     if not raw_targets:
-        if source_mode == "json":
-            default_dir = os.path.join("input", "long_term_uc", "countries")
-        else:
-            runner_dir = os.path.join("input", "runner")
-            default_dir = runner_dir
-
-        if os.path.isdir(default_dir):
-            raw_targets = [default_dir]
+        runner_dir = os.path.join("input", "runner")
+        if os.path.isdir(runner_dir):
+            raw_targets = [runner_dir]
+        elif source_mode == "json" and os.path.isdir(os.path.join("input", "long_term_uc", "countries")):
+            raw_targets = [os.path.join("input", "long_term_uc", "countries")]
         else:
             parser.print_help()
-            print(f"\nError: Directory '{default_dir}' not found.")
+            print(f"\nError: Directory '{runner_dir}' not found.")
             sys.exit(1)
 
     ext = ".json" if source_mode == "json" else ".txt"
@@ -122,91 +206,111 @@ def main():
 
     if not matched_files:
         print(f"[!] No {ext} files found in: {raw_targets}")
-        if source_mode == "json":
-            print(f"    Please ensure country JSON files exist in input/long_term_uc/countries/ (e.g., france.json...)")
-        else:
-            print(f"    Please place country files in input/runner/ (e.g., france.txt, germany.txt...)")
+        print(f"    Please place country files in input/runner/ (e.g., france_europe1{ext}, france_europe2{ext}...)")
         sys.exit(1)
 
-    print("\n" + "=" * 70)
+    # Group files by Europe identifier (europe1, europe2, ...)
+    grouped_capas, grouped_srcs = group_files_by_europe_with_sources(matched_files)
+
+    # Filter Europes based on --europe argument if specified
+    if args.europe != "all":
+        grouped_capas = {k: v for k, v in grouped_capas.items() if k == args.europe}
+        grouped_srcs = {k: v for k, v in grouped_srcs.items() if k == args.europe}
+
+    available_europes = sorted(list(grouped_capas.keys()))
+    if not available_europes:
+        print(f"[!] No files matched the requested Europe configuration ('{args.europe}').")
+        sys.exit(1)
+
+    print("\n" + "=" * 76)
     print(f"   COLLECTIVE RUNNER FOR STUDENT INVESTMENTS - EUROPE MODE ({source_mode.upper()} SOURCE)")
-    print("=" * 70 + "\n")
+    print("=" * 76)
+    print(f"Detected Europe configuration(s): {', '.join(e.upper() for e in available_europes)}")
+    for eur in available_europes:
+        c_list = sorted(list(grouped_capas[eur].keys()))
+        print(f"  * {eur.upper()} ({len(c_list)} countries): {', '.join(c_list)}")
+        for c in c_list:
+            print(f"      - {c:<18} <- {grouped_srcs[eur][c]} ({len(grouped_capas[eur][c])} assets)")
 
-    # 1. Read and validate all country investment files
-    per_country_capacities: Dict[str, Dict[str, float]] = {}
-    source_files: Dict[str, str] = {}
+    # Case A: Two Europes are present and requested -> Sequential run + Comparison
+    if len(available_europes) >= 2 and "europe1" in grouped_capas and "europe2" in grouped_capas:
+        print("\n" + "=" * 76)
+        print("   SEQUENTIAL EXECUTION: SIMULATION EUROPE 1 THEN SIMULATION EUROPE 2")
+        print("=" * 76)
 
-    for fpath in matched_files:
-        try:
-            country, capacities = load_country_capacities(filepath=fpath)
-            per_country_capacities[country] = capacities
-            source_files[country] = fpath
-        except Exception as exc:
-            print(f"[!] Error while reading '{fpath}': {exc}", file=sys.stderr)
-            sys.exit(1)
+        # 1. Run Europe 1
+        metrics_eur1 = run_single_europe_simulation(
+            europe_name="europe1",
+            country_capacities=grouped_capas["europe1"],
+            period_start=args.period_start,
+            period_end=args.period_end,
+            dry_run=args.dry_run,
+            output_base_dir=args.output_dir,
+        )
 
-    collected_countries = sorted(list(per_country_capacities.keys()))
-    print(f"[1/3] Collected country files from {source_mode.upper()} ({len(collected_countries)} countries):")
-    for c in collected_countries:
-        print(f"      - {c.upper():<20} <- {source_files[c]} ({len(per_country_capacities[c])} assets defined)")
+        # 2. Run Europe 2
+        metrics_eur2 = run_single_europe_simulation(
+            europe_name="europe2",
+            country_capacities=grouped_capas["europe2"],
+            period_start=args.period_start,
+            period_end=args.period_end,
+            dry_run=args.dry_run,
+            output_base_dir=args.output_dir,
+        )
 
-    # 2. Update per-country JSON files (in TXT mode only)
-    if source_mode == "txt":
-        print(f"\n[2/3] Injecting capacities into input/long_term_uc/countries/:")
-        for country in collected_countries:
-            json_path = write_country_json(country=country, capacities=per_country_capacities[country])
-            print(f"      -> {json_path} updated")
-    else:
-        print(f"\n[2/3] Using existing country JSON files in input/long_term_uc/countries/ (no rewriting needed):")
-        print(f"      -> {len(collected_countries)} country file(s) loaded directly from JSON.")
+        if args.dry_run:
+            print("\n[INFO] --dry-run completed: both Europe 1 and Europe 2 configurations validated.")
+            return
 
-    # Strictly enforce "europe" mode and full-year horizon for the collective simulation
-    update_europe_params(
-        mode="europe",
-        team=collected_countries[0],
-        period_start=args.period_start,
-        period_end=args.period_end,
-    )
-    print(
-        f"      -> Global parameters: mode='europe', full year period [{args.period_start} - {args.period_end}] "
-        f"activated in elec-europe_params_to-be-modif.json"
-    )
+        if metrics_eur1 and metrics_eur2:
+            # 3. Compute and display comparative dashboard
+            comparison = compute_europe_comparison(metrics_eur1, metrics_eur2)
+            report_text = format_comparison_table(metrics_eur1, metrics_eur2, comparison)
 
-    if args.dry_run:
-        print(f"\n[INFO] --dry-run mode activated: configuration validated, simulation not started.")
-        print(f"       You can review files in input/long_term_uc/countries/.")
-        return
+            if not args.no_summary:
+                display_europe_comparison(report_text)
 
-    # 3. Launch interconnected European simulation
-    print(f"\n[3/3] Launching interconnected European simulation (my_little_europe_lt_uc.py)...")
-    print("-" * 70)
-    return_code = run_simulation()
-    print("-" * 70)
-
-    if return_code != 0:
-        print(f"\n[!] The simulation finished with non-zero exit code ({return_code}).")
-        sys.exit(return_code)
-
-    # 4. Display comparative European dashboard
-    if not args.no_summary:
-        summary_file = find_latest_summary_file()
-        if summary_file and os.path.isfile(summary_file):
-            try:
-                with open(summary_file, "r", encoding="utf-8") as f:
-                    summary_data = json.load(f)
-                updated_countries = collected_countries if source_mode == "txt" else []
-                display_multi_country_summary(
-                    summary_data=summary_data,
-                    countries=AVAILABLE_COUNTRIES,
-                    updated_countries=updated_countries,
-                    per_country_capacities=per_country_capacities,
-                    summary_file_path=summary_file,
-                )
-            except Exception as e:
-                logging.warning(f"Could not read summary file {summary_file}: {e}")
+            # 4. Save comparative results
+            txt_file, json_file = save_comparison_results(
+                comparison_data=comparison,
+                formatted_report=report_text,
+                output_dir=args.output_dir,
+                filename_prefix="comparison_europe1_vs_europe2",
+            )
+            print(f"\n[OK] Comparative summary successfully saved:")
+            print(f"     -> Text report : {txt_file}")
+            print(f"     -> JSON metrics: {json_file}\n")
         else:
-            print("\n[i] Simulation completed. No summary file found.")
+            print("\n[!] Warning: Could not generate comparison because one of the simulations did not produce metrics.")
+
+    # Case B: Single Europe configuration
+    else:
+        single_eur = available_europes[0]
+        metrics = run_single_europe_simulation(
+            europe_name=single_eur,
+            country_capacities=grouped_capas[single_eur],
+            period_start=args.period_start,
+            period_end=args.period_end,
+            dry_run=args.dry_run,
+            output_base_dir=args.output_dir,
+        )
+
+        if args.dry_run:
+            print(f"\n[INFO] --dry-run completed for {single_eur}.")
+            return
+
+        if not args.no_summary and metrics and metrics.get("summary_file"):
+            with open(metrics["summary_file"], "r", encoding="utf-8") as f:
+                s_data = json.load(f)
+            display_multi_country_summary(
+                summary_data=s_data,
+                countries=AVAILABLE_COUNTRIES,
+                updated_countries=sorted(list(grouped_capas[single_eur].keys())),
+                per_country_capacities=grouped_capas[single_eur],
+                summary_file_path=metrics["summary_file"],
+            )
 
 
 if __name__ == "__main__":
     main()
+
