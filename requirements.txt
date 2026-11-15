@@ -11,3 +11,6 @@ Requests
 gurobipy
 jupyter
 plotly
+seaborn
+pulp
+nbformat

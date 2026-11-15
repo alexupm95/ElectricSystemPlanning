@@ -3,7 +3,7 @@ import os
 
 import pytest
 
-from src.common.long_term_uc_io import OUTPUT_DATA_ANALYSIS_FOLDER
+from src.common.constants.env_dirs import OUTPUT_DATA_ANALYSIS_FOLDER
 from my_little_europe_data_analysis import run
 
 TEST_INPUT_DIR = os.path.join(os.path.dirname(__file__), "input")
@@ -41,3 +41,47 @@ def test_run_data_analysis(json_param_file, expected_output):
         output_path = os.path.join(OUTPUT_DATA_ANALYSIS_FOLDER, expected_output)
         assert os.path.exists(output_path), f"Output file {expected_output} not created"
         os.remove(output_path)
+
+
+def test_data_crunch_notebook_structure_and_imports():
+    import json
+    from itertools import combinations
+
+    import nbformat
+    import numpy as np
+    import pandas as pd
+    import plotly.colors as pc
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+    import pulp
+
+    # Verify that data_crunch.ipynb is valid JSON and valid notebook schema
+    with open("data_crunch.ipynb", "r", encoding="utf-8") as f:
+        nb = nbformat.read(f, as_version=4)
+    nbformat.validate(nb)
+    assert len(nb.cells) > 0
+
+    # Ensure no residual install prompts in notebook markdown/code
+    raw_content = json.dumps(nb)
+    assert "pip install" not in raw_content
+
+    # Verify the header imports cell
+    first_code_cell = next(cell for cell in nb.cells if cell.cell_type == "code")
+    cell_code = "".join(first_code_cell.source)
+    assert "matplotlib" not in cell_code
+    assert "seaborn" not in cell_code
+    assert "plotly.express" not in cell_code
+    assert "pulp" in cell_code
+
+    # Verify no trailing space in generation_capas_path
+    assert 'generation-capa_2025_{country_choice}.csv "' not in raw_content
+
+    # Verify generation_capas files exist and are readable for all countries
+    countries = ["benelux", "france", "germany", "iberian-peninsula", "italy", "poland", "scandinavia"]
+    for country in countries:
+        csv_path = f"data/ERAA_2023-2/generation_capas/generation-capa_2025_{country}.csv"
+        assert os.path.exists(csv_path), f"Missing generation capas file: {csv_path}"
+        df = pd.read_csv(csv_path, delimiter=";")
+        assert not df.empty, f"Empty generation capas file: {csv_path}"
+
+
