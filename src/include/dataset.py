@@ -64,7 +64,12 @@ def get_demand_data(folder: str, file_suffix: str, climatic_year: int, period: T
 def get_demand_adder_data(filepath: str, climatic_year: int,
                           period: Tuple[datetime, datetime]) -> pd.DataFrame:
     logging.debug('Get demand adder data')
-    df_demand_adder = pd.read_csv(filepath, sep=FILES_FORMAT.column_sep, decimal=FILES_FORMAT.decimal_sep)
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        return pd.DataFrame(columns=[COLUMN_NAMES.date, COLUMN_NAMES.value, COLUMN_NAMES.climatic_year])
+    try:
+        df_demand_adder = pd.read_csv(filepath, sep=FILES_FORMAT.column_sep, decimal=FILES_FORMAT.decimal_sep)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame(columns=[COLUMN_NAMES.date, COLUMN_NAMES.value, COLUMN_NAMES.climatic_year])
     if COLUMN_NAMES.climatic_year not in df_demand_adder.columns:
         df_demand_adder[COLUMN_NAMES.climatic_year] = climatic_year
     # then keep only selected period date range and climatic year
@@ -929,6 +934,8 @@ class Dataset:
         self.hydro_reservoir_gen_max_data = complete_country_data(per_country_data=self.hydro_reservoir_gen_max_data)
 
     def apply_demand_adder(self, files: list[str], selected_climatic_year: int, uc_period: tuple[datetime, datetime]):
+        if not files:
+            return
         demand_adder_folder = get_demand_adder_optional_folder()
         for file in files:
             _, country = get_year_and_country_from_demand_adder_file(file)

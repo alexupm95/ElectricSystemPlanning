@@ -392,7 +392,8 @@ def get_json_file_named(name: str, country: str, year: int, climatic_year: int, 
     if create_subdir:
         make_dir(full_path=output_folder)
 
-    return get_output_file_named(name, 'json', output_folder, country, year, climatic_year, start_horizon)
+    return get_output_file_named(name=name, extension='json', output_dir=output_folder, country=country, year=year,
+                                 climatic_year=climatic_year, start_horizon=start_horizon)
 
 
 def get_opt_power_file(country: str, year: int, climatic_year: int, start_horizon: datetime,
