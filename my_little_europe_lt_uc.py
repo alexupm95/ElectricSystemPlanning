@@ -161,7 +161,7 @@ def create_pypsa_network_model(name: str, uc_run_params: UCRunParams, eraa_datas
     pypsa_model = PypsaModel(name=name)
     date_idx = eraa_dataset.demand[uc_run_params.selected_countries[0]].index
     end_year = uc_run_params.selected_target_year + (
-        uc_run_params.uc_period_end.year - uc_run_params.uc_period_start.year
+            uc_run_params.uc_period_end.year - uc_run_params.uc_period_start.year
     )
     horizon = pd.date_range(
         start=uc_run_params.uc_period_start.replace(year=uc_run_params.selected_target_year),
@@ -346,6 +346,12 @@ def save_data_and_fig_results(pypsa_model: PypsaModel, uc_run_params: UCRunParam
                                                                 start_horizon=uc_run_params.uc_period_start,
                                                                 snapshots=pypsa_model.network.snapshots,
                                                                 output_tag=uc_run_params.output_tag)
+        # custom constraints dual variables, e.g. for max on CO2 emissions
+        if uc_run_params.save_custom_const_dual_vars:
+            uc_optimal_solution.save_custom_const_dual_vars_to_csv(year=uc_run_params.selected_target_year,
+                                                                   climatic_year=uc_run_params.selected_climatic_year,
+                                                                   start_horizon=uc_run_params.uc_period_start,
+                                                                   output_tag=uc_run_params.output_tag)
 
         # set UC summary metrics (Energy Not Served, number of failure hours, costs)
         uc_summary_metrics = (

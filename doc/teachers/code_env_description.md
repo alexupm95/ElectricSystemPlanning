@@ -87,8 +87,19 @@ Following are **additional info versus the ones detailed in** [European-system_t
    whereas variables x_{j-k} and x_{j+k'} are provided. In the present model, this situation typically arises for spillage variables, 
    which are undefined for some production units e.g., DSR units and batteries. By contrast, the mapping between constraints is complete 
    and well-defined for all indices between 1 and the number of modeled constraints.
+    - (optional) "<span style="color:#32B032; font-weight:bold">save_link_capa_dual_vars</span>": save dual variables associated to link capacity constraints in a .csv file (in [data](../../output/long_term_uc/data)).
+  
+      Default: false (no such files obtained in [data](../../output/long_term_uc/data)).
+    - (optional) "<span style="color:#32B032; font-weight:bold">save_custom_const_dual_vars</span>": idem, but for "custom" constraints, the "sumprod" ones described below - and used currently only to set upper bounds on CO2 emissions.
+  
+      Default: false (no such files obtained in [data](../../output/long_term_uc/data)).
+  
+      N.B. The obtained file *sumprod-const-duals_{ty}_cy{cy}_{uc run start}.csv* has two columns: (i) Name of the constraint, with a suffix joining the "initials" of the countries associated to the considered constraint (first letter of the country, excepting "ip" for Iberian-Peninsula and "it" for Italy), excepting if whole Europe is considered then "_eur" is used; (ii) Value of the dual variable (a float).
+  
     - (optional) "<span style="color:#32B032; font-weight:bold">plot_link_capa_saturation</span>": plot sunburst with 3-levels (1. non-oriented link, 2. direction, 3. period of the day)
-    to illustrate in an aggregate manner the saturation of link capacities. Default: do not plot (and save associated file)
+    to illustrate in an aggregate manner the saturation of link capacities. Default: do not plot (and save associated file).
+  
+      Default: false (no such files obtained in [figures](../../output/long_term_uc/figures)).
 
 ## C.2) On optional functionalities
 

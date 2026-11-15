@@ -81,6 +81,8 @@ class UCRunParams:
     save_explicit_corresp_for_lp_elts: bool = False
     # save link capa constraint dual variables
     save_link_capa_dual_vars: bool = False
+    # save custom constraint dual variables (e.g., max on CO2 emissions)
+    save_custom_const_dual_vars: bool = False
     # plot stock SoC in per-unit (of energy capacity
     plot_stock_soc_in_pu: bool = True
     plot_link_capa_saturation: bool = False

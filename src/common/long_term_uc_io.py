@@ -277,14 +277,16 @@ def get_network_figure(toy_model_output: bool = False, country: str = None, crea
     return f'{output_folder}/network{n_bus_suffix}.png'
 
 
-def get_output_file_suffix(country: str, year: int, climatic_year: int = None, start_horizon: datetime = None) -> str:
+def get_output_file_suffix(year: int, country: str = None, climatic_year: int = None,
+                           start_horizon: datetime = None) -> str:
+    country_prefix = f"{country}_" if country is not None else ''
     cy_suffix = f'_cy{climatic_year}' if climatic_year is not None else ''
     date_suffix = f'_{start_horizon.strftime(DATE_FORMAT_FILE)}' if start_horizon is not None else ''
-    return f'{country}_{year}{cy_suffix}{date_suffix}'
+    return f'{country_prefix}{year}{cy_suffix}{date_suffix}'
 
 
-def get_output_file_named(name: str, extension: str, output_dir: str, country: str, year: int, climatic_year: int,
-                          start_horizon: datetime = None) -> str:
+def get_output_file_named(name: str, extension: str, output_dir: str, year: int, climatic_year: int,
+                          country: str = None, start_horizon: datetime = None) -> str:
     file_suffix = get_output_file_suffix(country=country, year=year, climatic_year=climatic_year,
                                          start_horizon=start_horizon)
     return f'{output_dir}/{name}_{file_suffix}.{extension}'
@@ -361,7 +363,8 @@ def get_csv_file_named(name: str, year: int, climatic_year: int, start_horizon: 
     if create_subdir:
         make_dir(full_path=output_folder)
 
-    return get_output_file_named(name, 'csv', output_folder, country, year, climatic_year, start_horizon)
+    return get_output_file_named(name=name, extension='csv', output_dir=output_folder, country=country, year=year,
+                                 climatic_year=climatic_year, start_horizon=start_horizon)
 
 
 def get_json_file_named(name: str, country: str, year: int, climatic_year: int, start_horizon: datetime,
@@ -401,6 +404,12 @@ def get_marginal_prices_file(country: str, year: int, climatic_year: int, start_
 def get_link_capa_dual_vars_file(year: int, climatic_year: int, start_horizon: datetime, country: str = 'europe',
                                  output_tag: str = None) -> str:
     return get_csv_file_named(name='link-capa-duals', country=country, year=year, climatic_year=climatic_year,
+                              start_horizon=start_horizon, output_tag=output_tag)
+
+
+def get_custom_const_dual_vars_file(year: int, climatic_year: int, start_horizon: datetime,
+                                    output_tag: str = None) -> str:
+    return get_csv_file_named(name='sumprod-const-duals', year=year, climatic_year=climatic_year,
                               start_horizon=start_horizon, output_tag=output_tag)
 
 

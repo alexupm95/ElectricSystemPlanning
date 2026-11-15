@@ -14,3 +14,5 @@ TRIGRAMS_TO_COUNTRIES = \
     {set_country_trigram(country): country
      for country in ["benelux", "france", "germany", "iberian-peninsula", "italy", "poland", "scandinavia"]
                          }
+COUNTRIES_INITIALS = {"benelux": "b", "france": "f", "germany": "g", "iberian-peninsula": "ip", "italy": "it",
+                      "poland": "p", "scandinavia": "s"}

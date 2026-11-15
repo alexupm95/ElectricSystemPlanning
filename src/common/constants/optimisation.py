@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import product
 from typing import List
 
 import numpy as np
@@ -84,6 +85,34 @@ class ConstMultCoeffNames:
 
 # TODO: put as object (below) constants?
 N_COUNTRIES_MAX_IN_NAME = 3
+
+
+def set_sum_of_prod_const_name(const_type: str, temporal_granularity: str, direction: str,
+                               countries_suffix: str = None) -> str:
+    # remove prefix (min/max) from constraint type
+    for prefix in ["min_", "max_"]:
+        if const_type.startswith(prefix):
+            const_type = const_type[len(prefix):]
+    if countries_suffix is None:
+        countries_suffix = ""
+    return f"{const_type}_{temporal_granularity}_{direction}{countries_suffix}"
+
+
+def selec_custom_const_names(constraint_names: list[str]) -> list[str]:
+    custom_constraint_types = [CustomConstraintNames.max_co2_emissions, CustomConstraintNames.max_prod_cost]
+    temp_granularities = [Timescale.day, Timescale.week, Timescale.whole_period]
+    constraint_dirs = \
+        [CustomConstraintDirection.equal, CustomConstraintDirection.upper, CustomConstraintDirection.lower]
+    custom_const_names = []
+    for const_name in constraint_names:
+        if any([const_name.startswith(set_sum_of_prod_const_name(const_type=const_type,
+                                                                 temporal_granularity=temp_granularity,
+                                                                 direction=const_dir))
+                for const_type, temp_granularity, const_dir in
+                product(custom_constraint_types, temp_granularities, constraint_dirs)]):
+            custom_const_names.append(const_name)
+
+    return custom_const_names
 
 
 @dataclass

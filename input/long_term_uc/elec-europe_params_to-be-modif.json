@@ -61,7 +61,7 @@
   "output_tag": "preliminar",
   "add_date_tag_to_output": false,
   "add_run_idx_tag_to_output": true,
-  "save_explicit_corresp_for_lp_elts": true,
   "plot_stock_soc_in_pu": false,
-  "save_link_capa_dual_vars": true
+  "save_link_capa_dual_vars": true,
+  "save_custom_const_dual_vars": true
 }
