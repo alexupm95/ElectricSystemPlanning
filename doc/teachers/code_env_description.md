@@ -60,6 +60,8 @@ Containing parameters to be changed by students to play with the different scrip
 
 Following are **additional info versus the ones detailed in** [European-system_tutorial.md](../long_term_uc/European-system_tutorial.md) - in Sec. II.1):
 
+XXX specify params which are keys of extra_params dict -> see class EuropeJsonExtraParamNames XXX
+
 - [elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json):  
     - (optional) <span style="color:#32B032; font-weight:bold">state_of_charge_init_pu</span>: to set an initial SoC per stock-like asset, add this key to <span style="color:#32B032; font-weight:bold">extra_params</span> dictionary, under the form {(stock-like) prod unit fulle name: initial SoC} (<span style="color:#257cbd; font-weight:bold">dictionary of floats in [0, 1]</span>). Default: 0.8 will be applied in UC model.
    
@@ -79,6 +81,9 @@ Following are **additional info versus the ones detailed in** [European-system_t
   
       N.B. In chosen approach, generator i marginal_cost attributes are increased with a term emission_factor_i * co2_emis_price / efficiency_i; 
       this CO2 emission cost has no dedicated term in obtained formulation (that can be read in .lp file). 
+    - (optional) "<span style="color:#32B032; font-weight:bold">use_demand_adder_files</span>": use demand-adder files in folder [demand](../../input/long_term_uc/optional/demand). If present, their data will be added - per climatic year, and date - to the one of ERAA data. 
+  
+      Default: false (and ERAA raw data from [demand](../../data/ERAA_2023-2/demand) will be used).
     - (optional) "<span style="color:#32B032; font-weight:bold">add_date_tag_to_output</span>": to **add a tag indicating the run date** to the obtained data/figure output folders. Default: no such tag, in this case a previous run results may be overwritten.
     N.B. This tag is applied prioritarily versus the run index one (activated with parameter **add_run_idx_tag_to_output**)
     - (optional) "<span style="color:#32B032; font-weight:bold">save_explicit_corresp_for_lp_elts</span>": save two files with 

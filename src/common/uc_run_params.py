@@ -77,6 +77,8 @@ class UCRunParams:
     add_date_tag_to_output: bool = False
     add_run_idx_tag_to_output: bool = False
     output_tag: str = None
+    # use demand-adder files from input/optinal/demand folder?
+    use_demand_adder_files: bool = False
     # save files with correspondence between PyPSA "abstract" variable/constraint names and explicit ones
     save_explicit_corresp_for_lp_elts: bool = False
     # save link capa constraint dual variables

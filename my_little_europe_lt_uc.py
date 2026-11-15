@@ -110,9 +110,10 @@ def get_needed_eraa_data(uc_run_params: UCRunParams, eraa_data_descr: ERAADatase
     eraa_dataset.complete_data()
 
     # apply demand adder, if data available for that
-    eraa_dataset.apply_demand_adder(files=uc_run_params.demand_adder_files,
-                                    selected_climatic_year=uc_run_params.selected_climatic_year,
-                                    uc_period=(uc_run_params.uc_period_start, uc_run_params.uc_period_end))
+    if len(uc_run_params.demand_adder_files) > 0:
+        eraa_dataset.apply_demand_adder(files=uc_run_params.demand_adder_files,
+                                        selected_climatic_year=uc_run_params.selected_climatic_year,
+                                        uc_period=(uc_run_params.uc_period_start, uc_run_params.uc_period_end))
 
     logging.info(f'{TITLE_LOG_SEP} II)2) Check data coherence {TITLE_LOG_SEP}')
     logging.info('Get generation units data, from both ERAA data - read just before '
@@ -452,10 +453,12 @@ def run(network_name: str = 'my little europe', solver_params: SolverParams = No
                                            updated_params=uc_run_params.updated_fuel_sources_params)
 
     # obtain demand adder files
-    if usage_params.manually_adding_demand:
+    if usage_params.manually_adding_demand and uc_run_params.use_demand_adder_files:
         demand_adder_files = get_demand_adder_files(target_year=uc_run_params.selected_target_year,
                                                     countries=uc_run_params.selected_countries)
         uc_run_params.set_demand_adder_files(demand_adder_files)
+    else:
+        uc_run_params.demand_adder_files = []
 
     logging.info(f'{TITLE_LOG_SEP} II) Get data for UC model {TITLE_LOG_SEP}')
 

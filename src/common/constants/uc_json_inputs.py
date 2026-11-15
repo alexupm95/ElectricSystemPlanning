@@ -38,6 +38,7 @@ class EuropeJsonExtraParamNames:
     co2_emis_price: str = 'co2_emis_price'
     max_co2_emis: str = 'max_co2_emis_constraints'
     state_of_charge_init: str = 'state_of_charge_init_pu'
+    use_demand_adder_files: str = 'use_demand_adder_files'
 
 
 ALL_KEYWORD = 'all'
