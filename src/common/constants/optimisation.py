@@ -155,6 +155,9 @@ class ZoneAndTempProdSumConstraint:
         # add name if not provided
         if self.name is None:
             self.set_name()
+        if isinstance(self.bound, int):
+            self.bound = float(self.bound)
+
         # cast bound as vector if per period constraint and float is provided
         if (self.temporal_granularity in [Timescale.day, Timescale.week, Timescale.month]
                 and isinstance(self.bound, float)):

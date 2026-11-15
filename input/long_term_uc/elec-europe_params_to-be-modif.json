@@ -49,6 +49,13 @@
             "europe"
           ],
           "upper_bound": 3.14
+        },
+        {
+          "countries": [
+            "france",
+            "germany"
+          ],
+          "upper_bound": 1
         }
       ]
     },
