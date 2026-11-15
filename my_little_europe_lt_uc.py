@@ -513,7 +513,10 @@ def run(network_name: str = 'my little europe', solver_params: SolverParams = No
 
     run_end = time.time()
 
-    logging.info(f'{TITLE_LOG_SEP} THE END of ERAA-PyPSA long-term UC simulation! '
+    run_complem_msg = f" for team {uc_run_params.team}" if uc_run_params.team is not None else ""
+    if uc_run_params.output_tag is not None:
+        run_complem_msg += f", with output tag {uc_run_params.output_tag}"
+    logging.info(f'{TITLE_LOG_SEP} THE END of ERAA-PyPSA long-term UC simulation{run_complem_msg}! '
                  f'(after {run_end - run_start:.2f}s) {TITLE_LOG_SEP}:\n{str(uc_summary_metrics)}')
     stop_logger()
     return uc_summary_metrics

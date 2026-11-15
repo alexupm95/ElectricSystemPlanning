@@ -136,6 +136,9 @@ On the **format of JSON files**:
 The ones in folder [input/long_term_uc](../../input/long_term_uc/); **file by file description** - starting with the two only ones to be modified:
 
 - [elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json):  
+    - (optional) <span style="color:#32B032; font-weight:bold">team</span>: the name of your - European! - team; only for some prints in the logs.
+  
+      Default: logs without your team name :).
     - <span style="color:#32B032; font-weight:bold">selected_climatic_year</span>: to **choose climatic year** considered for UC model (unique deterministic scenario, <span style="color:#257cbd; font-weight:bold">int</span> value; that must be in set of allowed ones -> see [elec-europe_eraa-available-values.json](../../input/long_term_uc/elec-europe_eraa-available-values.json)).
     - <span style="color:#32B032; font-weight:bold">selected_countries</span>: to **choose countries** that you would like to be part of your European - copper-plate - long-term UC model (<span style="color:#257cbd; font-weight:bold">list of string</span>; that must be in the set of considered countries for this class, see same file). 
     
