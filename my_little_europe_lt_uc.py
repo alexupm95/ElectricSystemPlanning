@@ -124,6 +124,10 @@ def get_needed_eraa_data(uc_run_params: UCRunParams, eraa_data_descr: ERAADatase
     if len(fuel_sources_with_modif_marg_cost) > 0:
         eraa_dataset.update_gen_units_marginal_costs(fuel_sources=fuel_sources_with_modif_marg_cost)
 
+    # apply init SoC from values set in European JSON file to be modified
+    if len(uc_run_params.state_of_charge_init_pu) > 0:
+        eraa_dataset.apply_init_soc_values(per_prod_unit_init_soc=uc_run_params.state_of_charge_init_pu)
+
     # set 'committable' attribute to False, i.e. no 'dynamic constraints' modeled in the considered modeled
     eraa_dataset.set_committable_param_to_false()
 
@@ -421,6 +425,10 @@ def run(network_name: str = 'my little europe', solver_params: SolverParams = No
     uc_run_params.set_target_years_for_capa_data(
         use_first_year_capas_as_default=usage_params.use_first_year_capas_as_default,
         init_target_year=min(eraa_data_descr.available_target_years))
+
+    # remove init SoC values if functionality to apply these values not activated in usage parameters
+    if not usage_params.apply_per_prod_unit_init_soc:
+        uc_run_params.empty_per_prod_unit_init_soc()
 
     # Get needed data (demand, RES Capa. Factors, installed generation capacities)
     if 'debug_mode' in extra_params:

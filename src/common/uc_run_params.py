@@ -13,7 +13,8 @@ from src.common.constants.temporal import DATE_FORMAT_IN_JSON, MIN_DATE_IN_DATA,
 from src.common.constants.uc_json_inputs import ALL_KEYWORD
 from src.common.error_msgs import uncoherent_param_stop
 from src.common.logger import format_relative_path_for_log
-from src.common.long_term_uc_io import get_current_run_idx_in_output_folder, get_json_fuel_sources_tb_modif_file
+from src.common.long_term_uc_io import get_current_run_idx_in_output_folder, get_json_fuel_sources_tb_modif_file, \
+    get_json_params_tb_modif_file
 from src.include.timeseries import Timeseries
 from src.utils.basic_utils import are_lists_eq
 from src.utils.dates import get_period_str
@@ -68,6 +69,7 @@ class UCRunParams:
     # some extra-parameters
     co2_emis_price: float = None  # common over Eur. CO2 emissions price -> used in UC objective function
     max_co2_emis_constraints: dict = None  # data to define max co2 emission constraints
+    state_of_charge_init_pu: dict[str, float] = None  # {full prod unit name country-trigram_name: init SoC value}
     # sum of production constraint objects, obtained based on previous dicts:
     # sum_{z, t} prod(z, t) * coeff(z, t) <= ub (or >=)
     sum_prod_constraints: List[ZoneAndTempProdSumConstraint] = None
@@ -130,6 +132,21 @@ class UCRunParams:
         if self.co2_emis_price is None:
             self.co2_emis_price = DEFAULT_CO2_EMIS_PRICE
             logging.info(f"Default CO2 emission price of {DEFAULT_CO2_EMIS_PRICE}€/xCO2eq. will be used")
+
+        # default init SoC for stock-like prod units
+        if self.state_of_charge_init_pu is None:
+            self.state_of_charge_init_pu = {}
+        else:  # keep only values that are coherent
+            pus_with_soc_init_in_json = list(self.state_of_charge_init_pu)
+            self.state_of_charge_init_pu = \
+                {pu_full_name: init_soc for pu_full_name, init_soc in self.state_of_charge_init_pu.items()
+                 if 0 <= init_soc <= 1}
+            rm_pus = list(set(pus_with_soc_init_in_json) - set(self.state_of_charge_init_pu))
+            if len(rm_pus) > 0:
+                json_params_tb_modif_file = get_json_params_tb_modif_file()
+                logging.warning(f"The following init SoC values set in file "
+                                f"{format_relative_path_for_log(json_params_tb_modif_file)} will not be used in UC "
+                                f"model as not in right interval for p.u. (per unit) values [0, 1]: \n{rm_pus}")
 
         # keep only updated source params values that are non None
         if self.updated_fuel_sources_params is not None:
@@ -359,6 +376,13 @@ class UCRunParams:
             common_year_for_capa = self.selected_target_year
         # assign common value to all considered countries
         self.target_years_for_capa_data = {country: common_year_for_capa for country in self.selected_countries}
+
+    def empty_per_prod_unit_init_soc(self):
+        if len(self.state_of_charge_init_pu) > 0:
+            logging.warning(f"As SoC init values for stock-like production units cannot be modified from input files "
+                            f"in current usage mode, following values will not be used: "
+                            f"\n{self.state_of_charge_init_pu}")
+        self.state_of_charge_init_pu = {}
 
     def set_demand_adder_files(self, files: list[str]):
         self.demand_adder_files = files

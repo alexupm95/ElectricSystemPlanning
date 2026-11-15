@@ -1145,6 +1145,22 @@ class Dataset:
                          f"new one): {modif_params}")
             self.set_generation_units_data(gen_units_data_new)
 
+    def apply_init_soc_values(self, per_prod_unit_init_soc: dict[str, float]):
+        """
+        Apply initial SoC values for stock-like assets
+        :param per_prod_unit_init_soc: {prod unit full name, in format country-trigram_type: init SoC value in
+        per-unit, i.e. in [0, 1]
+        """
+        unit_data_with_set_init_soc = []
+        for country, gen_units_data in self.generation_units_data.items():
+            for unit_data in gen_units_data:
+                unit_data_name = unit_data.name
+                if unit_data_name in per_prod_unit_init_soc:
+                    unit_data.state_of_charge_initial = per_prod_unit_init_soc[unit_data_name]
+                    unit_data_with_set_init_soc.append(unit_data_name)
+        if len(unit_data_with_set_init_soc) > 0:
+            logging.info(f"Production units with initial SoC set from input JSON file: {unit_data_with_set_init_soc}")
+
     def set_generation_units_data(self, gen_units_data: Dict[str, List[GenerationUnitData]]):
         self.generation_units_data = gen_units_data
 

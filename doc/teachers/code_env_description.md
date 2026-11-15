@@ -61,6 +61,19 @@ Containing parameters to be changed by students to play with the different scrip
 Following are **additional info versus the ones detailed in** [European-system_tutorial.md](../long_term_uc/European-system_tutorial.md) - in Sec. II.1):
 
 - [elec-europe_params_to-be-modif.json](../../input/long_term_uc/elec-europe_params_to-be-modif.json):  
+    - (optional) <span style="color:#32B032; font-weight:bold">state_of_charge_init_pu</span>: to set an initial SoC per stock-like asset, add this key to <span style="color:#32B032; font-weight:bold">extra_params</span> dictionary, under the form {(stock-like) prod unit fulle name: initial SoC} (<span style="color:#257cbd; font-weight:bold">dictionary of floats in [0, 1]</span>). Default: 0.8 will be applied in UC model.
+   
+      Ex:
+  
+      ```json
+      {
+        "state_of_charge_init_pu": {
+          "fra_hydro_reservoir": 0.8,
+          "ger_hydro_reservoir": 0.2,
+        }
+      }
+      ```
+      N.B. The trigrams of the countries have to be used in prod unit full name 
     - (optional) "<span style="color:#32B032; font-weight:bold">co2_emis_price</span>": to add a cost associated to CO2 emissions
     in UC objective function (<span style="color:#257cbd; font-weight:bold">non-negative float</span>, €/tCO2eq.). Default: 0€/tCO2eq.
   
@@ -218,7 +231,9 @@ operations for the students. Per parameter:
     - <span style="color:#32B032; font-weight:bold">data_analysis</span>: false 
     - <span style="color:#32B032; font-weight:bold">monozone_toy_uc_model</span>: true
     - <span style="color:#32B032; font-weight:bold">multizones_uc_model</span>: true
-  Q: still useful? (in multizones_uc_model case, behaviour dependently on the chosen mode solo/europe)
+  
+    Q: still useful? (in multizones_uc_model case, behaviour dependently on the chosen mode solo/europe)
+  - <span style="color:#32B032; font-weight:bold">apply_per_prod_unit_init_soc</span>: allow to apply per prod unit init SoC values (in Eur. JSON file to be modified); otherwise common default value set when writing PyPSA model (currently 0.8). Default: false
   - <span style="color:#32B032; font-weight:bold">get_optional_const_from_data_folder</span>: get data for optional constraints from data folder (available only to the 
   teachers) or input one (in which students can do some modifications)? Can be either a boolean, or a dictionary to 
   specifiy this property per type of constraint; in this latter case available keys are "hydro", "max_co2_emissions", 
@@ -231,4 +246,4 @@ operations for the students. Per parameter:
   i.e. before applying values set in input JSON per-country files
   - <span style="color:#32B032; font-weight:bold">log_level</span>
 
-    Default: XXX
+    Default: info.

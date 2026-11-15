@@ -45,12 +45,18 @@
     "max_co2_emis_constraints": {
       "cases": [
         {
-          "countries": ["europe"],
+          "countries": [
+            "europe"
+          ],
           "upper_bound": 3.14
         }
       ]
     },
-    "co2_emis_price": 10
+    "co2_emis_price": 10,
+    "state_of_charge_init_pu": {
+      "fra_hydro_reservoir": 0.2,
+      "ger_hydro_reservoir": 1.2
+    }
   },
   "output_tag": "preliminar",
   "add_date_tag_to_output": false,

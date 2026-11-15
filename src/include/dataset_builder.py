@@ -317,6 +317,8 @@ class PypsaModel:
 
                 # case of storage units, identified via the presence of max_hours param
                 if is_gen_unit_storage_data(gen_unit_data=pypsa_gen_unit_dict):
+                    energy_capa = (pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.power_capa]
+                                   * pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.max_hours])
                     if pypsa_gen_unit_dict.get(GEN_UNITS_PYPSA_PARAMS.soc_init, None) is None:
                         # initial SoC fixed to 80% statically here
                         if agg_info_over_cases:
@@ -324,9 +326,11 @@ class PypsaModel:
                         else:
                             logging.info(f'Default value set for {pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.name]} '
                                          f'init. SOC as {int(100 * default_init_soc_pu)}% of energy storage capa.')
-                        init_soc = (pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.power_capa]
-                                    * pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.max_hours] * 0.8)
+                        init_soc = 0.8 * energy_capa
                         pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.soc_init] = init_soc
+                    else:
+                        # value set in European input JSON file to be modified is in per-unit of energy capa.
+                        pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.soc_init] *= energy_capa
                     self.network.add('StorageUnit', bus=f'{country_bus_name}', **pypsa_gen_unit_dict)
                 else:
                     self.network.add('Generator', bus=f'{country_bus_name}', **pypsa_gen_unit_dict)
