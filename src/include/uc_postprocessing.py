@@ -1,4 +1,6 @@
+import os
 import logging
+import os
 import warnings
 from datetime import datetime
 from itertools import product
@@ -9,12 +11,14 @@ from dataclasses import dataclass, asdict
 from typing import Dict, List, Literal, Union, Optional
 import json
 import pypsa
+from linopy import Model as linopy_model
 import xarray
 from matplotlib import pyplot as plt
 import plotly.express as px
 
 from src.common.constants.countries import set_country_trigram
 from src.common.constants.links import set_link_name, REVERSE_SIGN, get_bus_from_link_name
+from src.common.constants.optimisation import selec_custom_const_names
 from src.common.constants.prod_types import STOCK_LIKE_PROD_TYPES, ProdTypeNames, add_suffix_to_storage_unit_col, \
     get_prod_type_from_unit_name, set_gen_unit_name, get_country_from_unit_name, PT_ORDER_IN_DATA_OUTPUT, \
     STORAGE_COL_SUFFIX, rm_country_from_prod_unit_name
@@ -22,11 +26,11 @@ from src.common.constants.pypsa_params import PypsaOptimConstNames
 from src.common.logger import format_relative_path_for_log
 from src.common.long_term_uc_io import FigNamesPrefix, get_output_figure, get_figure_file_named, get_opt_power_file, \
     get_storage_opt_dec_file, get_marginal_prices_file, get_link_flow_opt_dec_file, get_uc_summary_file, \
-    get_link_capa_dual_vars_file
+    get_link_capa_dual_vars_file, get_custom_const_dual_vars_file
 from src.common.plot_params import PlotParams
 from src.utils.basic_utils import format_with_spaces, get_default_values, dict_to_str
 from src.utils.df_utils import rename_df_columns, sort_out_cols_with_zero_values, is_column_constant, \
-    create_df_from_dict
+    build_timeseries_df
 from src.utils.plot import get_similar_color
 
 OUTPUT_DATE_COL = 'date'
@@ -135,6 +139,8 @@ class UCSummaryMetrics:
     per_country_total_cost: Dict[str, float] = None  # including failure penalty (fictive) cost
     per_country_total_operational_cost: Dict[str, float] = None  # without this cost
     per_country_co2_emissions: Dict[str, float] = None
+    per_country_production: Dict[str, float] = None  # in GWh, without failure
+    total_production: float = None  # in GWh, without failure
 
     def __repr__(self, europe_name: str = None) -> str:
         metric_sep = '\n-> '
@@ -313,6 +319,14 @@ def duals_to_link_dual_dict(duals: xarray.DataArray) -> dict[str, np.ndarray]:
     return dict(zip(duals.coords[link_dim].values, duals.values, strict=True))
 
 
+def check_dual_avail(pypsa_model: linopy_model):
+    if not hasattr(pypsa_model, "dual") or len(pypsa_model.dual) == 0:
+        raise RuntimeError(
+            "No dual values available. "
+            "Make sure the optimization was run with assign_all_duals=True."
+        )
+
+
 # TODO: check typing
 class UCOptimalSolution:
     def __init__(self, network_name: str):
@@ -325,7 +339,8 @@ class UCOptimalSolution:
         self.link_flow_reverse: pd.DataFrame = None  # to the second bus (destination)
         # dual variables associated to supply-demand equilibrium const. - interpreted as marginal prices
         self.sde_dual: pd.DataFrame = None
-        self.link_capa_dual: dict[str, np.array] = None  # {link name: vector with all values, one per snapshot}
+        self.link_capa_dual: dict[str, np.ndarray] = None  # {link name: vector with all values, one per snapshot}
+        self.custom_const_dual: dict[str, np.ndarray] = None
 
     def get_prod_var_opt(self, network: pypsa.Network):
         self.prod = network.generators_t.p
@@ -342,19 +357,23 @@ class UCOptimalSolution:
     def get_sde_dual_var_opt(self, network: pypsa.Network):
         self.sde_dual = network.buses_t.marginal_price
 
-    def get_link_capa_dual_var_opt(self, network: pypsa.Network) -> dict[str, float]:
-
+    def get_link_capa_dual_var_opt(self, network: pypsa.Network):
         model = network.model
-
-        if not hasattr(model, "dual") or len(model.dual) == 0:
-            raise RuntimeError(
-                "No dual values available. "
-                "Make sure the optimization was run with assign_all_duals=True."
-            )
+        check_dual_avail(model)
 
         link_ub_constraint = model.constraints[PypsaOptimConstNames.link_ub]
         duals = link_ub_constraint.dual
         self.link_capa_dual = duals_to_link_dual_dict(duals)
+
+    def get_custom_const_dual_var_opt(self, network: pypsa.Network):
+        model = network.model
+        check_dual_avail(model)
+
+        custom_const_names = selec_custom_const_names(constraint_names=list(model.constraints))
+        logging.debug(f"Get dual variables for following 'custom' constraints: {custom_const_names}")
+        self.custom_const_dual = {}
+        for const_name in custom_const_names:
+            self.custom_const_dual[const_name] = model.constraints[const_name].dual
 
     def plot_prod(self, plot_params_agg_pt: PlotParams, country: str, year: int, climatic_year: int,
                   start_horizon: datetime, toy_model_output: bool = False, rm_all_zero_curves: bool = True,
@@ -505,16 +524,14 @@ class UCOptimalSolution:
                 df_soc_opt[col] /= capacity
 
             if hydro_soc_min is not None:
-                hydro_soc_min_plot = hydro_soc_min.copy()
-
-                for asset in hydro_soc_min_plot:
-                    hydro_soc_min_plot[asset] /= storage_const_soc_max[asset]
+                hydro_soc_min_plot = {}
+                for asset, val in hydro_soc_min.items():
+                    hydro_soc_min_plot[asset] = np.array(val, copy=True) / storage_const_soc_max[asset]
 
             if hydro_soc_max is not None:
-                hydro_soc_max_plot = hydro_soc_max.copy()
-
-                for asset in hydro_soc_max_plot:
-                    hydro_soc_max_plot[asset] /= storage_const_soc_max[asset]
+                hydro_soc_max_plot = {}
+                for asset, val in hydro_soc_max.items():
+                    hydro_soc_max_plot[asset] = np.array(val, copy=True) / storage_const_soc_max[asset]
 
         else:
             hydro_soc_min_plot = hydro_soc_min
@@ -676,14 +693,14 @@ class UCOptimalSolution:
     def plot_link_capa_saturation(self, link_capacities: dict[str, float], year: int, climatic_year: int,
                                   start_horizon: datetime, output_tag: str = None, n_time_blocks: int = 4,
                                   saturation_threshold: float = 0.999,
-                                  time_label_mode: Literal["blocks", "dates"] = "blocks"):
+                                  time_label_mode: Literal["diurnal", "blocks", "dates"] = "diurnal"):
         """
         Plot a 3-level sunburst showing transmission link capacity saturation.
 
         Levels:
             1. Link
             2. Saturation direction
-            3. Time block
+            3. Time block (diurnal time slice by default)
 
         Parameters
         ----------
@@ -698,38 +715,62 @@ class UCOptimalSolution:
         output_tag :
             On output folder, to be more explicit
         n_time_blocks :
-            Number of temporal aggregation blocks. Ex: if 4, then number saturation occurrences will be considered for
-            blocks [0AM, 6AM], [6AM, 0PM], [0PM, 6PM], [6PM, 0AM next day]
+            Number of temporal aggregation blocks. Ex: if 4 and time_label_mode="diurnal",
+            then saturation occurrences will be considered for daily blocks
+            [00h-06h], [06h-12h], [12h-18h], [18h-24h]
         saturation_threshold :
-            Saturation threshold as a fraction of nominal capacity.
+            Saturation threshold as a fraction of nominal capacity (e.g. 0.999).
         time_label_mode :
-            "blocks" -> Block 1, ..., Block N
-            "dates"  -> Explicit time interval labels
+            "diurnal" -> daily time slots [00h-06h], ..., [18h-24h]
+            "blocks"  -> Block 1, ..., Block N
+            "dates"   -> Explicit time interval labels
         """
         logging.info('Plot link capacity saturation (stat. aggregated view)')
         df_link_flow_opt_direct = self.link_flow_direct
 
-        if len(df_link_flow_opt_direct) == 0:
-            raise ValueError("Link flow df is empty (after UC optim.) -> plot not possible")
+        if df_link_flow_opt_direct is None or len(df_link_flow_opt_direct) == 0:
+            logging.warning("Link flow DataFrame is empty (no flow data after UC optimization). "
+                            "Skipping link capacity saturation plot.")
+            return
+
+        n_snapshots = len(df_link_flow_opt_direct)
+
+        if time_label_mode == "diurnal":
+            hour_edges = np.linspace(0, 24, n_time_blocks + 1, dtype=int)
+            if isinstance(df_link_flow_opt_direct.index, pd.DatetimeIndex):
+                hours = df_link_flow_opt_direct.index.hour.values
+            else:
+                try:
+                    dt_index = pd.to_datetime(df_link_flow_opt_direct.index)
+                    hours = dt_index.hour.values
+                except Exception:
+                    hours = np.arange(n_snapshots) % 24
+        elif time_label_mode in ("blocks", "dates"):
+            block_edges = np.linspace(0, n_snapshots, n_time_blocks + 1, dtype=int)
+        else:
+            raise ValueError(f"Unknown time_label_mode '{time_label_mode}', must be 'diurnal', 'blocks', or 'dates'.")
 
         records = []
 
-        n_snapshots = len(df_link_flow_opt_direct)
-        block_edges = np.linspace(
-            0,
-            n_snapshots,
-            n_time_blocks + 1,
-            dtype=int,
-        )
-
         for link_name, capacity in link_capacities.items():
+            if capacity is None or capacity <= 0:
+                continue
 
             if link_name not in df_link_flow_opt_direct.columns:
                 continue
 
             flow = df_link_flow_opt_direct[link_name]
 
-            origin_bus, destination_bus = get_bus_from_link_name(link_name=link_name)
+            bus_tuple = get_bus_from_link_name(link_name=link_name)
+            if bus_tuple is not None:
+                origin_bus, destination_bus = bus_tuple
+            else:
+                cleaned_link_name = link_name.split("_")[0]
+                if "-" in cleaned_link_name:
+                    parts = cleaned_link_name.split("-")
+                    origin_bus, destination_bus = parts[0], parts[1]
+                else:
+                    origin_bus, destination_bus = link_name, f"{link_name}_dest"
 
             sat_pos = flow >= saturation_threshold * capacity
             sat_neg = flow <= -saturation_threshold * capacity
@@ -740,37 +781,28 @@ class UCOptimalSolution:
             }
 
             for direction, sat_mask in directions.items():
-
                 for block_id in range(n_time_blocks):
-
-                    start = block_edges[block_id]
-                    end = block_edges[block_id + 1]
-
-                    block_mask = sat_mask.iloc[start:end]
-
-                    proportion_total_time = block_mask.sum() / n_snapshots
+                    if time_label_mode == "diurnal":
+                        h_start = hour_edges[block_id]
+                        h_end = hour_edges[block_id + 1]
+                        hour_mask = (hours >= h_start) & (hours < h_end)
+                        block_mask = sat_mask.values & hour_mask
+                        proportion_total_time = block_mask.sum() / n_snapshots
+                        time_label = f"{h_start:02d}h-{h_end:02d}h"
+                    else:
+                        start = block_edges[block_id]
+                        end = block_edges[block_id + 1]
+                        block_mask = sat_mask.iloc[start:end]
+                        proportion_total_time = block_mask.sum() / n_snapshots
+                        if time_label_mode == "blocks":
+                            time_label = f"Block {block_id + 1}"
+                        else:
+                            start_ts = df_link_flow_opt_direct.index[start]
+                            end_ts = df_link_flow_opt_direct.index[end - 1]
+                            time_label = f"{start_ts:%Y-%m-%d} → {end_ts:%Y-%m-%d}"
 
                     if proportion_total_time == 0:
                         continue
-
-                    if time_label_mode == "blocks":
-                        time_label = f"Block {block_id + 1}"
-
-                    elif time_label_mode == "dates":
-
-                        start_ts = df_link_flow_opt_direct.index[start]
-                        end_ts = df_link_flow_opt_direct.index[end - 1]
-
-                        time_label = (
-                            f"{start_ts:%Y-%m-%d}"
-                            f" → "
-                            f"{end_ts:%Y-%m-%d}"
-                        )
-
-                    else:
-                        raise ValueError(
-                            "time_label_mode must be 'blocks' or 'dates'."
-                        )
 
                     records.append(
                         {
@@ -784,7 +816,9 @@ class UCOptimalSolution:
         sunburst_df = pd.DataFrame(records)
 
         if sunburst_df.empty:
-            raise ValueError("No saturation detected.")
+            logging.info("No transmission link capacity saturation detected (flows <= threshold * capacity). "
+                         "Skipping saturation plot.")
+            return
 
         fig = px.sunburst(
             sunburst_df,
@@ -801,16 +835,27 @@ class UCOptimalSolution:
             title="Transmission Link Saturation Breakdown",
         )
 
-        fig.write_image(
-            get_output_figure(
-                fig_name=FigNamesPrefix.link_capa_saturation,
-                country="europe",
-                year=year,
-                climatic_year=climatic_year,
-                start_horizon=start_horizon,
-                output_tag=output_tag,
-            )
+        output_png_filepath = get_output_figure(
+            fig_name=FigNamesPrefix.link_capa_saturation,
+            country="europe",
+            year=year,
+            climatic_year=climatic_year,
+            start_horizon=start_horizon,
+            output_tag=output_tag,
         )
+
+        # Save interactive HTML figure
+        output_html_filepath = f"{os.path.splitext(output_png_filepath)[0]}.html"
+        fig.write_html(output_html_filepath)
+        logging.info(f"Link capacity saturation interactive plot saved to {format_relative_path_for_log(path=output_html_filepath)}")
+
+        # Attempt PNG image export (if kaleido is installed)
+        try:
+            fig.write_image(output_png_filepath)
+            logging.info(f"Link capacity saturation PNG plot saved to {format_relative_path_for_log(path=output_png_filepath)}")
+        except Exception as e:
+            logging.debug(f"Static PNG export of link capacity saturation skipped ({e}). "
+                          f"Interactive HTML is available at {output_html_filepath}")
 
     def save_decisions_to_csv(self, year: int, climatic_year: int, start_horizon: datetime,
                               rename_snapshot_col: bool = True, toy_model_output: bool = False,
@@ -890,15 +935,27 @@ class UCOptimalSolution:
         df_sde_dual_var_opt.to_csv(marginal_prices_csv_file)
 
     def save_link_capa_dual_vars_to_csv(self, year: int, climatic_year: int, start_horizon: datetime,
-                                        output_tag: str = None):
+                                        snapshots: pd.DatetimeIndex, output_tag: str = None):
         link_capa_duals_csv_file = get_link_capa_dual_vars_file(year=year, climatic_year=climatic_year,
                                                                 start_horizon=start_horizon, output_tag=output_tag)
         logging.info(f'Save link capacity dual variables to .csv file '
                      f'{format_relative_path_for_log(path=link_capa_duals_csv_file)}')
-
-        df_link_capa_duals = create_df_from_dict(data=self.link_capa_dual, key_col_name="link",
-                                                 value_col_name="dual_variable")
+        df_link_capa_duals = build_timeseries_df(data=self.link_capa_dual, dates=snapshots, key_col_name="link",
+                                                 value_col_name="dual_variable", date_col=OUTPUT_DATE_COL)
         df_link_capa_duals.to_csv(link_capa_duals_csv_file, index=False)
+
+    def save_custom_const_dual_vars_to_csv(self, year: int, climatic_year: int, start_horizon: datetime,
+                                           output_tag: str = None):
+        custom_const_dual_vars_file = get_custom_const_dual_vars_file(year=year, climatic_year=climatic_year,
+                                                                      start_horizon=start_horizon, output_tag=output_tag)
+        logging.info(f'Save custom constraint(s) {list(self.custom_const_dual)} dual variables to .csv file '
+                     f'{format_relative_path_for_log(path=custom_const_dual_vars_file)}')
+        data_to_csv = {"constraint": [], "dual_variable": []}
+        for const_name, dual_var in self.custom_const_dual.items():
+            data_to_csv["constraint"].append(const_name)
+            data_to_csv["dual_variable"].append(dual_var.item())
+        df_custom_const_duals = pd.DataFrame.from_dict(data_to_csv)
+        df_custom_const_duals.to_csv(custom_const_dual_vars_file, index=False)
 
     def get_prod_given_bus(self, bus_name: str) -> Optional[pd.DataFrame]:
         if self.prod is None:
@@ -946,6 +1003,21 @@ class UCOptimalSolution:
             )
         return per_country_total_cost
 
+    def calc_per_country_production(self, countries: List[str], snapshot_weightings: pd.DataFrame) -> Dict[str, float]:
+        """
+        Calculate total energy generated (excluding failure) per country in MWh.
+        """
+        per_country_prod = {}
+        for country in countries:
+            current_prod_var_opt = self.get_prod_given_bus(bus_name=country)
+            fail_cols = [c for c in current_prod_var_opt.columns if c.endswith('_failure')]
+            if fail_cols:
+                current_prod_var_opt = current_prod_var_opt.drop(columns=fail_cols)
+            per_country_prod[country] = float(
+                current_prod_var_opt.multiply(snapshot_weightings, axis=0).sum().sum()
+            )
+        return per_country_prod
+
     def set_uc_summary_metrics(self, network: pypsa.Network, total_cost: float,
                                failure_penalty: float = None) -> UCSummaryMetrics:
         logging.info('Set UC summary metrics')
@@ -982,11 +1054,19 @@ class UCOptimalSolution:
                                              snapshot_weightings=network.snapshot_weightings.generators,
                                              marginal_costs=network.generators.marginal_cost, is_operational_cost=True)
         )
+        per_country_prod = (
+            self.calc_per_country_production(countries=countries,
+                                             snapshot_weightings=network.snapshot_weightings.generators)
+        )
+        total_prod = sum(per_country_prod.values())
+
         # attention convert to GWh/M€ and int to get smaller values for synthesis. TODO: check CO2 emissions unit!
+        ens_conversion_factor = 1e-3
         cost_conversion_factor = 1e-6
         co2_emis_conversion_factor = 1e-3
+        energy_conversion_factor = 1e-3
         return UCSummaryMetrics(
-            per_country_ens={c: int(val / 1e3) for c, val in per_country_ens.items()},
+            per_country_ens={c: val * ens_conversion_factor for c, val in per_country_ens.items()},
             per_country_n_failure_hours=per_country_n_failure_h,
             total_cost=int(total_cost * cost_conversion_factor),
             total_operational_cost=int(eur_total_ope_cost * cost_conversion_factor),
@@ -995,4 +1075,6 @@ class UCOptimalSolution:
             per_country_total_operational_cost={c: int(val * cost_conversion_factor)
                                                 for c, val in per_country_total_operational_cost.items()},
             per_country_co2_emissions={c: int(val * co2_emis_conversion_factor) for
-                                       c, val in per_country_co2_emissions.items()})
+                                       c, val in per_country_co2_emissions.items()},
+            per_country_production={c: int(val * energy_conversion_factor) for c, val in per_country_prod.items()},
+            total_production=int(total_prod * energy_conversion_factor))

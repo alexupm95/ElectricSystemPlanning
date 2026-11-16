@@ -70,34 +70,43 @@ Pour garantir que le solveur UC principal conserve de la souplesse pour arbitrer
 ElectricSystemPlanning/
 ├── Makefile                                    # [CRÉÉ] Cibles d'automatisation (test-hydro, run-europe, test)
 ├── src/
+│   ├── common/
+│   │   └── long_term_uc_io.py                  # [MODIFIÉ] get_preprocessed_hydro_levels_file
 │   └── include/
-│       ├── hydro_bounds_preprocessor.py        # [CRÉÉ] Module de relaxation LP et normalisation
-│       └── dataset_builder.py                  # [MODIFIÉ] Intégration dans add_hydro_extreme_levels_constraint
+│       ├── hydro_bounds_preprocessor.py        # [MODIFIÉ] Module de relaxation LP, formatage DF et export CSV
+│       └── dataset_builder.py                  # [MODIFIÉ] Mémorisation bornes pré-traitées et méthode d'export
+├── my_little_europe_lt_uc.py                   # [MODIFIÉ] Export automatique dans save_data_and_fig_results
 ├── tests/
 │   └── long_term_uc/
-│       └── test_hydro_bounds_slack.py          # [CRÉÉ] 4 tests unitaires du prétraitement
+│       └── test_hydro_bounds_slack.py          # [MODIFIÉ] 6 tests unitaires (dont format DataFrame et export CSV)
 └── doc/
     └── long_term_uc/
-        └── hydro_bounds_preprocessing.md       # [CRÉÉ] Présente documentation
+        └── hydro_bounds_preprocessing.md       # [MODIFIÉ] Présente documentation
 ```
 
 ### Détail des composants :
 - **`src/include/hydro_bounds_preprocessor.py` :**
   - `relax_single_hydro_reservoir_bounds_lp` : Résolution du micro-LP pour une unité hydroélectrique avec SciPy (`method='highs'`) et matrices creuses CSR.
   - `preprocess_all_hydro_soc_bounds` : Itérateur sur l'ensemble des réservoirs du réseau PyPSA, extrayant automatiquement les puissances, stocks initiaux et séries temporelles d'apports.
+  - `build_preprocessed_hydro_bounds_df` : Extraction des bornes hebdomadaires pré-traitées sous forme de DataFrame `zone;week;min_value;max_value` pour l'horizon simulé.
+  - `export_preprocessed_hydro_bounds_to_csv` : Sauvegarde physique au format d'entrée (`sep=';'`, arrondi à 3 décimales).
 - **`src/include/dataset_builder.py` :**
-  - Dans `add_hydro_extreme_levels_constraint`, les bornes en per-unit sont filtrées par le prétraitement avant d'être converties en MWh et injectées dans le modèle d'optimisation Linopy.
+  - Dans `add_hydro_extreme_levels_constraint`, les bornes pré-traitées sont mémorisées sur `PypsaModel` et disponibles via `save_preprocessed_hydro_bounds_to_csv`.
+- **`my_little_europe_lt_uc.py` :**
+  - Dans `save_data_and_fig_results`, export automatique du fichier `PECD-hydro-weekly-reservoir-min-max-levels_preprocessed.csv` dans le dossier de résultats de la simulation (`output/long_term_uc/data_{tag}/`).
 
 ---
 
 ## 4. Résultats et Validation
 
 ### 1. Tests Unitaires (`make test-hydro`)
-Quatre scénarios de validation ont été testés et validés en **0.62 seconde** :
+Six scénarios de validation ont été testés et validés :
 1. `test_hydro_bounds_slack_initial_soc_conflict` : Rehaussement exact de $V_{\max}$ à $t=0$ de $70\%$ à $\ge 79\%$ pour rendre réalisable un $SoC_{\text{init}} = 80\%$ avec une capacité de turbinage horaire de $1\%$.
 2. `test_hydro_bounds_slack_out_of_scale_scandinavia` : Normalisation automatique d'une série $[0.25, 4.79]$ ramenée dans $[0, 1]$ et vérification de la faisabilité.
 3. `test_hydro_bounds_slack_already_feasible_unchanged` : Conservation stricte des bornes déjà réalisables ($\delta = 0$).
 4. `test_hydro_bounds_slack_bandwidth_enforcement` : Élargissement symétrique pour garantir $\Delta_{\min} \ge 5\%$.
+5. `test_build_preprocessed_hydro_bounds_df` : Conformité des colonnes `zone;week;min_value;max_value`, correspondance avec les zones et semaines ISO.
+6. `test_export_preprocessed_hydro_bounds_to_csv` : Écriture et relecture du fichier CSV avec séparateur `;` et valeurs formatées.
 
 ### 2. Validation sur la Simulation Européenne Complète (`make run-europe`)
 Lors de l'exécution de `my_little_europe_lt_uc.py` :
@@ -105,10 +114,12 @@ Lors de l'exécution de `my_little_europe_lt_uc.py` :
   - France (`fra_hydro_reservoir`) : relaxation de $V_{\max}$ de $+90.4\text{ GWh}$ au démarrage.
   - Espagne (`ibe_hydro_reservoir`) : relaxation de $V_{\max}$ de $+1\,189.7\text{ GWh}$ pour respecter la pente de vidange.
   - Scandinavie (`sca_hydro_reservoir`) : détection de l'échelle hors-norme ($4.397 > 1.0$) et normalisation par $5.0$.
+- **Fichier CSV exporté :**
+  - `output/long_term_uc/data_{output_tag}/PECD-hydro-weekly-reservoir-min-max-levels_preprocessed.csv` généré avec les valeurs pré-traitées prêtes pour inspection ou réutilisation directe.
 - **Convergence de l'optimisation :**
   - Solveur HiGHS : statut `Optimal` obtenu en **17.88 secondes** (76 608 variables, 281 794 contraintes).
   - Génération complète des résultats dans `output/long_term_uc/data_preliminar_9/` (décisions de dispatch, flux d'interconnexion, métriques UC `uc-summary_europe_*.json`).
 
 ### 3. Suite Globale de Tests (`make test`)
-- `tests/long_term_uc/test_hydro_bounds_slack.py` : **4 passed** (0.74s)
-- `tests/long_term_uc/test_europe_lt_uc.py` : **1 passed** (19.32s)
+- `tests/long_term_uc/test_hydro_bounds_slack.py` : **6 passed**
+- `tests/long_term_uc/test_europe_lt_uc.py` : **1 passed**

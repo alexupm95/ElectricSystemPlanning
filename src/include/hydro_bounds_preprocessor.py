@@ -1,11 +1,146 @@
 import logging
-from typing import Dict, Tuple, Optional, Union
+import os
+from datetime import datetime
+from typing import Dict, Tuple, Optional, Union, List
 import numpy as np
 import pandas as pd
 from scipy.optimize import linprog
 from scipy import sparse
 
-from src.common.constants.optimisation import CustomConstraintNames
+from src.utils.basic_utils import format_with_spaces
+
+TRIGRAM_TO_ZONE = {
+    "fra": "france",
+    "ibe": "iberian-peninsula",
+    "sca": "scandinavia",
+    "ger": "germany",
+    "deu": "germany",
+    "ita": "italy",
+    "ben": "benelux",
+    "pol": "poland",
+}
+
+
+def get_zone_name_for_unit(unit_name: str, network=None) -> str:
+    """
+    Determine the ERAA zone name for a hydro storage unit.
+    """
+    if network is not None and hasattr(network, "storage_units") and unit_name in network.storage_units.index:
+        bus = str(network.storage_units.loc[unit_name, "bus"])
+        if bus in TRIGRAM_TO_ZONE:
+            return TRIGRAM_TO_ZONE[bus]
+        if bus.lower() in TRIGRAM_TO_ZONE.values():
+            return bus.lower()
+
+    # Fallback from unit name prefix (e.g. 'fra_hydro_reservoir' -> 'fra' -> 'france')
+    prefix = unit_name.split("_")[0].lower()
+    if prefix in TRIGRAM_TO_ZONE:
+        return TRIGRAM_TO_ZONE[prefix]
+    return prefix
+
+
+def build_preprocessed_hydro_bounds_df(network,
+                                       soc_min_processed_pu: Dict[str, np.ndarray],
+                                       soc_max_processed_pu: Dict[str, np.ndarray],
+                                       target_indices_per_unit: Optional[Dict[str, np.ndarray]] = None,
+                                       decimal_digits: int = 3) -> pd.DataFrame:
+    """
+    Build a pandas DataFrame containing the preprocessed weekly min/max bounds
+    for hydro reservoirs in the simulated horizon, matching the ERAA input format:
+    zone;week;min_value;max_value
+
+    :param network: PyPSA Network object with snapshots
+    :param soc_min_processed_pu: Dict of {unit_name: relaxed_soc_min_pu_array}
+    :param soc_max_processed_pu: Dict of {unit_name: relaxed_soc_max_pu_array}
+    :param target_indices_per_unit: Optional Dict of {unit_name: target_snapshot_indices}
+    :param decimal_digits: Decimal precision for rounding
+    :return: DataFrame with columns ['zone', 'week', 'min_value', 'max_value']
+    """
+    rows = []
+    snapshots = network.snapshots
+    if len(snapshots) == 0:
+        return pd.DataFrame(columns=["zone", "week", "min_value", "max_value"])
+
+    first_snap = pd.Timestamp(snapshots[0])
+    # In this environment, simulation weeks are defined on fictive year 1900 calendar
+    try:
+        start_date_1900 = datetime(1900, first_snap.month, first_snap.day)
+        base_week = int(start_date_1900.isocalendar().week)
+    except ValueError:
+        base_week = 1
+
+    for unit_name, min_arr in soc_min_processed_pu.items():
+        if unit_name not in soc_max_processed_pu:
+            continue
+        max_arr = soc_max_processed_pu[unit_name]
+        zone = get_zone_name_for_unit(unit_name, network=network)
+
+        # Determine target snapshots corresponding to weekly bound targets
+        if target_indices_per_unit is not None and unit_name in target_indices_per_unit:
+            target_indices = target_indices_per_unit[unit_name]
+        else:
+            # Weekly steps occur every 168 hours starting from t=0
+            weekly_steps = np.arange(0, len(snapshots), 168)
+            # Plus any snapshot where values deviate from unconstrained corridor [0, 1]
+            non_trivial = np.where((min_arr > 1e-4) | (max_arr < 1.0 - 1e-4))[0]
+            target_indices = np.union1d(weekly_steps, non_trivial)
+
+        for t_idx in target_indices:
+            if t_idx >= len(snapshots):
+                continue
+            week_offset = int(t_idx // 168)
+            week_idx = ((base_week - 1 + week_offset) % 52) + 1
+            min_val = round(float(min_arr[t_idx]), decimal_digits)
+            max_val = round(float(max_arr[t_idx]), decimal_digits)
+            rows.append({
+                "zone": zone,
+                "week": week_idx,
+                "min_value": min_val,
+                "max_value": max_val
+            })
+
+    if len(rows) == 0:
+        return pd.DataFrame(columns=["zone", "week", "min_value", "max_value"])
+
+    df = pd.DataFrame(rows)
+    df = df.drop_duplicates(subset=["zone", "week"]).sort_values(by=["zone", "week"]).reset_index(drop=True)
+    return df
+
+
+def export_preprocessed_hydro_bounds_to_csv(network,
+                                            soc_min_processed_pu: Dict[str, np.ndarray],
+                                            soc_max_processed_pu: Dict[str, np.ndarray],
+                                            output_filepath: str,
+                                            target_indices_per_unit: Optional[Dict[str, np.ndarray]] = None,
+                                            decimal_digits: int = 3) -> pd.DataFrame:
+    """
+    Export the preprocessed weekly hydro reservoir min/max bounds to a CSV file
+    with the exact same format as the input file:
+    zone;week;min_value;max_value
+
+    :param network: PyPSA Network object with snapshots
+    :param soc_min_processed_pu: Dict of {unit_name: relaxed_soc_min_pu_array}
+    :param soc_max_processed_pu: Dict of {unit_name: relaxed_soc_max_pu_array}
+    :param output_filepath: Destination CSV file path
+    :param target_indices_per_unit: Optional Dict of {unit_name: target_snapshot_indices}
+    :param decimal_digits: Decimal precision for values
+    :return: Generated DataFrame
+    """
+    df = build_preprocessed_hydro_bounds_df(
+        network=network,
+        soc_min_processed_pu=soc_min_processed_pu,
+        soc_max_processed_pu=soc_max_processed_pu,
+        target_indices_per_unit=target_indices_per_unit,
+        decimal_digits=decimal_digits
+    )
+
+    parent_dir = os.path.dirname(os.path.abspath(output_filepath))
+    if parent_dir and not os.path.exists(parent_dir):
+        os.makedirs(parent_dir, exist_ok=True)
+
+    df.to_csv(output_filepath, sep=";", index=False, float_format=f"%.{decimal_digits}f")
+    logging.info(f"[Hydro Preprocessor] Exported preprocessed hydro bounds to CSV ({len(df)} rows): {output_filepath}")
+    return df
 
 
 def relax_single_hydro_reservoir_bounds_lp(unit_name: str,
@@ -181,10 +316,14 @@ def relax_single_hydro_reservoir_bounds_lp(unit_name: str,
     total_slack_max = float(np.sum(delta_max_opt))
 
     if total_slack_min > 1.0 or total_slack_max > 1.0:
-        logging.info(
-            f"[Hydro Preprocessor] Unit '{unit_name}': relaxed Vmin by {total_slack_min:.1f} MWh "
-            f"and Vmax by {total_slack_max:.1f} MWh to guarantee feasibility."
-        )
+        n_decimals_log = 1
+        relaxed_log_msgs = []
+        for key, slack_tot in {"Vmin": total_slack_min, "Vmax": total_slack_max}.items():
+            if slack_tot > 1.0:
+                relaxed_log_msgs.append(
+                    f"{key} by {format_with_spaces(number=slack_tot, decimals=n_decimals_log)} MWh")
+        relaxed_msg = " and ".join(relaxed_log_msgs)
+        logging.info(f"[Hydro Preprocessor] Unit '{unit_name}': relaxed {relaxed_msg} to guarantee feasibility.")
 
     v_min_relaxed = v_min_mwh.copy()
     v_max_relaxed = v_max_mwh.copy()
@@ -220,7 +359,8 @@ def preprocess_all_hydro_soc_bounds(network,
                                     energy_capa: Dict[str, float],
                                     n_ts: int,
                                     min_bandwidth_pu: float = 0.05,
-                                    enable_relaxation: bool = True) \
+                                    enable_relaxation: bool = True,
+                                    export_csv_path: Optional[str] = None) \
         -> Tuple[Dict[str, np.ndarray], Dict[str, np.ndarray]]:
     """
     Preprocess and relax all hydro reservoir extreme level bounds before injecting into PyPSA / Linopy.
@@ -232,6 +372,7 @@ def preprocess_all_hydro_soc_bounds(network,
     :param n_ts: Number of snapshots
     :param min_bandwidth_pu: Minimum bandwidth in per unit
     :param enable_relaxation: If False, only format arrays without LP relaxation
+    :param export_csv_path: Optional CSV filepath to automatically export preprocessed bounds
     :return: (soc_min_processed_pu, soc_max_processed_pu)
     """
     processed_min = {}
@@ -286,5 +427,13 @@ def preprocess_all_hydro_soc_bounds(network,
 
         processed_min[unit_name] = rel_min_pu
         processed_max[unit_name] = rel_max_pu
+
+    if export_csv_path is not None:
+        export_preprocessed_hydro_bounds_to_csv(
+            network=network,
+            soc_min_processed_pu=processed_min,
+            soc_max_processed_pu=processed_max,
+            output_filepath=export_csv_path
+        )
 
     return processed_min, processed_max

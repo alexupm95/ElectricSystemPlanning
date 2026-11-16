@@ -23,16 +23,18 @@ from src.common.constants.temporal import Timescale
 from src.common.error_msgs import print_errors_list
 from src.common.fuel_sources import FuelSource
 from src.common.logger import format_relative_path_for_log
-from src.common.long_term_uc_io import (COLUMN_NAMES,  GEN_CAPA_SUBDT_COLS, INPUT_CY_STRESS_TEST_SUBFOLDER,
+from src.common.long_term_uc_io import (COLUMN_NAMES, GEN_CAPA_SUBDT_COLS, INPUT_CY_STRESS_TEST_SUBFOLDER,
                                         HYDRO_KEY_COLUMNS, HYDRO_VALUE_COLUMNS,
-                                        HYDRO_TS_GRANULARITY, HYDRO_DATA_RESAMPLE_METHODS, HYDRO_LEVELS_RESAMPLE_FILLNA_VALS, \
+                                        HYDRO_TS_GRANULARITY, HYDRO_DATA_RESAMPLE_METHODS,
+                                        HYDRO_LEVELS_RESAMPLE_FILLNA_VALS, \
                                         HYDRO_FILES,
-                                        HYDRO_DTS_OPT_FROM_INPUT_FOLDER, get_json_fuel_sources_tb_modif_file)
+                                        HYDRO_DTS_OPT_FROM_INPUT_FOLDER, get_json_fuel_sources_tb_modif_file,
+                                        get_demand_adder_optional_folder, get_year_and_country_from_demand_adder_file)
 from src.common.uc_run_params import UCRunParams
 from src.include.dataset_builder import GenerationUnitData, select_gen_units_data
 from src.utils.basic_utils import get_intersection_of_lists, dict_to_str, format_with_spaces
 from src.utils.df_utils import create_dict_from_cols_in_df, selec_in_df_based_on_list, set_aggreg_col_based_on_corresp, \
-    create_dict_from_df_row, resample_and_distribute
+    create_dict_from_df_row, resample_and_distribute, sum_df_values_by_keys
 from src.utils.dir_utils import uniformize_path_os
 from src.utils.eraa_data_reader import filter_input_data, gen_capa_pt_str_sanitizer, select_interco_capas, \
     set_aggreg_cf_prod_types_data, read_and_process_hydro_data, read_and_process_hydro_data_from_input_folder
@@ -57,6 +59,24 @@ def get_demand_data(folder: str, file_suffix: str, climatic_year: int, period: T
                                   climatic_year_col=COLUMN_NAMES.climatic_year, period_start=period[0],
                                   period_end=period[1], climatic_year=climatic_year)
     return df_demand
+
+
+def get_demand_adder_data(filepath: str, climatic_year: int,
+                          period: Tuple[datetime, datetime]) -> pd.DataFrame:
+    logging.debug('Get demand adder data')
+    if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+        return pd.DataFrame(columns=[COLUMN_NAMES.date, COLUMN_NAMES.value, COLUMN_NAMES.climatic_year])
+    try:
+        df_demand_adder = pd.read_csv(filepath, sep=FILES_FORMAT.column_sep, decimal=FILES_FORMAT.decimal_sep)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame(columns=[COLUMN_NAMES.date, COLUMN_NAMES.value, COLUMN_NAMES.climatic_year])
+    if COLUMN_NAMES.climatic_year not in df_demand_adder.columns:
+        df_demand_adder[COLUMN_NAMES.climatic_year] = climatic_year
+    # then keep only selected period date range and climatic year
+    df_demand_adder = filter_input_data(df=df_demand_adder, date_col=COLUMN_NAMES.date,
+                                        climatic_year_col=COLUMN_NAMES.climatic_year, period_start=period[0],
+                                        period_end=period[1], climatic_year=climatic_year)
+    return df_demand_adder
 
 
 def get_cf_agg_prod_types_tb_read(selected_agg_prod_types: List[str], agg_prod_types_with_cf_data: List[str],
@@ -339,10 +359,10 @@ def overwrite_gen_capas_data(df_gen_capa: pd.DataFrame, new_power_capas: Dict[st
     if df_gen_capa is not None and country in new_power_capas:
         current_new_power_capas = deepcopy(new_power_capas[country])
         if GW_IN_LOG:
-            current_new_power_capas = {prod_type: int(capa / 1e3)
+            current_new_power_capas = {prod_type: capa / 1e3
                                        for prod_type, capa in current_new_power_capas.items()}
         logging.info(f'OVERWRITTEN ERAA prod. capacity values, in {POWER_UNIT_IN_LOG}: '
-                     f'{dict_to_str(d=current_new_power_capas, nbers_with_spaces=True, key_val_sep="=")}')
+                     f'{dict_to_str(d=current_new_power_capas, nbers_with_spaces=True, key_val_sep="=", decimals=2)}')
         for agg_prod_type, new_capa_val in new_power_capas[country].items():
             df_gen_capa.loc[
                 df_gen_capa[PROD_TYPE_AGG_COL] == agg_prod_type, 'power_capacity'] = new_capa_val
@@ -366,9 +386,9 @@ def capa_info_log(df_gen_capa: pd.DataFrame):
     # get dict. with only power capacity values to get less verbose logs
     power_capa_dict = create_dict_from_cols_in_df(df=df_gen_capa, key_col=PROD_TYPE_AGG_COL, val_col='power_capacity')
     if GW_IN_LOG:
-        power_capa_dict = {prod_type: int(capa / 1e3) for prod_type, capa in power_capa_dict.items()}
+        power_capa_dict = {prod_type: capa / 1e3 for prod_type, capa in power_capa_dict.items()}
     logging.info(f'-> power capacity values, in {POWER_UNIT_IN_LOG}: '
-                 f'{dict_to_str(d=power_capa_dict, nbers_with_spaces=True, key_val_sep="=")}')
+                 f'{dict_to_str(d=power_capa_dict, nbers_with_spaces=True, key_val_sep="=", decimals=2)}')
 
 
 def calc_cf_capa_prod(df_gen_capa: pd.DataFrame, df_agg_cf: pd.DataFrame, cf_agg_prod_types_tb_read: List[str],
@@ -913,6 +933,27 @@ class Dataset:
         self.hydro_reservoir_gen_min_data = complete_country_data(per_country_data=self.hydro_reservoir_gen_min_data)
         self.hydro_reservoir_gen_max_data = complete_country_data(per_country_data=self.hydro_reservoir_gen_max_data)
 
+    def apply_demand_adder(self, files: list[str], selected_climatic_year: int, uc_period: tuple[datetime, datetime]):
+        if not files:
+            return
+        demand_adder_folder = get_demand_adder_optional_folder()
+        for file in files:
+            _, country = get_year_and_country_from_demand_adder_file(file)
+            df_adder = get_demand_adder_data(filepath=os.path.join(demand_adder_folder, file),
+                                             climatic_year=selected_climatic_year, period=uc_period)
+            if len(df_adder) == 0:
+                logging.warning(f"No demand-adder data available for country {country} after selection with current "
+                                f"UC run params -> not accounted for")
+            else:
+                total_vol_added = df_adder[COLUMN_NAMES.value].sum()
+                logging.info(f"Apply demand-adder for country {country} for a total volume added - over UC period "
+                             f"- of {format_with_spaces(number=total_vol_added, decimals=2)} MWh")
+                self.demand[country] = (
+                    sum_df_values_by_keys(df1=self.demand[country], df2=df_adder,
+                                          key_cols=[COLUMN_NAMES.climatic_year, COLUMN_NAMES.date],
+                                          value_col=COLUMN_NAMES.value)
+                )
+
     def get_agg_prod_types(self, country: str) -> List[str]:
         return list(set(self.agg_gen_capa_data[country][PROD_TYPE_AGG_COL]))
 
@@ -1144,6 +1185,22 @@ class Dataset:
                          f"{json_fuel_param_filepath} - each tuple of the form (source name, init. value, "
                          f"new one): {modif_params}")
             self.set_generation_units_data(gen_units_data_new)
+
+    def apply_init_soc_values(self, per_prod_unit_init_soc: dict[str, float]):
+        """
+        Apply initial SoC values for stock-like assets
+        :param per_prod_unit_init_soc: {prod unit full name, in format country-trigram_type: init SoC value in
+        per-unit, i.e. in [0, 1]
+        """
+        unit_data_with_set_init_soc = []
+        for country, gen_units_data in self.generation_units_data.items():
+            for unit_data in gen_units_data:
+                unit_data_name = unit_data.name
+                if unit_data_name in per_prod_unit_init_soc:
+                    unit_data.state_of_charge_initial = per_prod_unit_init_soc[unit_data_name]
+                    unit_data_with_set_init_soc.append(unit_data_name)
+        if len(unit_data_with_set_init_soc) > 0:
+            logging.info(f"Production units with initial SoC set from input JSON file: {unit_data_with_set_init_soc}")
 
     def set_generation_units_data(self, gen_units_data: Dict[str, List[GenerationUnitData]]):
         self.generation_units_data = gen_units_data

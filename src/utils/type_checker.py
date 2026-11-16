@@ -6,6 +6,7 @@ from src.common.error_msgs import print_errors_list
 
 @dataclass
 class CheckerNames:
+    is_bool: str = 'bool'
     is_dict: str = 'dict'
     is_str: str = 'str'
     is_int: str = 'int'
@@ -27,6 +28,10 @@ class CheckerNames:
 
 def check_dict(data_val) -> bool:
     return isinstance(data_val, dict)
+
+
+def check_bool(data_val) -> bool:
+    return isinstance(data_val, bool)
 
 
 # basic checker
@@ -148,6 +153,7 @@ def apply_data_type_check(data_type: str, data_val) -> bool:
 # correspondence between types and associated functions (and additional keyword args when applicable) 
 # to be applied for type check
 CHECK_FUNCTIONS = {
+    CheckerNames.is_bool: check_bool,
     CheckerNames.is_dict: check_dict,
     CheckerNames.is_str: check_str,
     CheckerNames.is_int: check_int,

@@ -50,6 +50,9 @@ class UsageParameters:
     # apply per country JSON file data selection/overwriting params?
     # N.B. {str: str} in JSON file; {str: bool} after parsing
     apply_per_country_json_file_params: Union[Dict[str, str], Dict[str, bool]] = None
+    # allow to apply per prod unit init SoC values (in Eur. JSON file to be modified); otherwise common default value
+    # set when writing PyPSA model
+    apply_per_prod_unit_init_soc: bool = False
     overwriting_eraa_interco_capa_vals: bool = False
     manually_adding_demand: bool = False
     manually_adding_generators: bool = False

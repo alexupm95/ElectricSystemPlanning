@@ -1,6 +1,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import product
 from typing import List
 
 import numpy as np
@@ -34,7 +35,7 @@ class OptimPbCharacteristics:
     n_constraints: int = None
 
     def __repr__(self) -> str:
-        repr_str = f'{self.type.upper()} optimisation pb with:'
+        repr_str = f'{self.type.upper()} optimisation problem with:'
         repr_str += f'\n* {format_with_spaces(number=self.n_variables)} variables'
         if self.n_int_variables is not None:
             repr_str += f' (including {format_with_spaces(number=self.n_int_variables)} integer ones)'
@@ -86,6 +87,34 @@ class ConstMultCoeffNames:
 N_COUNTRIES_MAX_IN_NAME = 3
 
 
+def set_sum_of_prod_const_name(const_type: str, temporal_granularity: str, direction: str,
+                               countries_suffix: str = None) -> str:
+    # remove prefix (min/max) from constraint type
+    for prefix in ["min_", "max_"]:
+        if const_type.startswith(prefix):
+            const_type = const_type[len(prefix):]
+    if countries_suffix is None:
+        countries_suffix = ""
+    return f"{const_type}_{temporal_granularity}_{direction}{countries_suffix}"
+
+
+def selec_custom_const_names(constraint_names: list[str]) -> list[str]:
+    custom_constraint_types = [CustomConstraintNames.max_co2_emissions, CustomConstraintNames.max_prod_cost]
+    temp_granularities = [Timescale.day, Timescale.week, Timescale.whole_period]
+    constraint_dirs = \
+        [CustomConstraintDirection.equal, CustomConstraintDirection.upper, CustomConstraintDirection.lower]
+    custom_const_names = []
+    for const_name in constraint_names:
+        if any([const_name.startswith(set_sum_of_prod_const_name(const_type=const_type,
+                                                                 temporal_granularity=temp_granularity,
+                                                                 direction=const_dir))
+                for const_type, temp_granularity, const_dir in
+                product(custom_constraint_types, temp_granularities, constraint_dirs)]):
+            custom_const_names.append(const_name)
+
+    return custom_const_names
+
+
 @dataclass
 class ZoneAndTempProdSumConstraint:
     """
@@ -126,6 +155,9 @@ class ZoneAndTempProdSumConstraint:
         # add name if not provided
         if self.name is None:
             self.set_name()
+        if isinstance(self.bound, int):
+            self.bound = float(self.bound)
+
         # cast bound as vector if per period constraint and float is provided
         if (self.temporal_granularity in [Timescale.day, Timescale.week, Timescale.month]
                 and isinstance(self.bound, float)):
@@ -187,8 +219,9 @@ class ZoneAndTempProdSumConstraint:
         if self.temporal_granularity in [Timescale.day, Timescale.week, Timescale.month]:
             # using dates in target year, to be coherent with the treatment of dates made in PyPSA hereafter
             if target_year is not None:
+                optim_end_year = target_year + (optim_end.year - optim_start.year)
                 optim_start = optim_start.replace(year=target_year)
-                optim_end = optim_end.replace(year=target_year)
+                optim_end = optim_end.replace(year=optim_end_year)
             period_start_dates = set_period_starts(start_date=optim_start, end_date=optim_end,
                                                    granularity=self.temporal_granularity)
             n_periods = len(period_start_dates)

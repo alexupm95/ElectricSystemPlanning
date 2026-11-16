@@ -12,7 +12,7 @@ from src.common.constants.datatypes import DATATYPE_NAMES
 from src.common.constants.env_dirs import DT_SUBFOLDERS, DEMAND_ADDER_FILE_PREFIX, \
     OutputFolderNames, INPUT_FUNC_PARAMS_SUBFOLDER, INPUT_DATA_ANALYSIS_SUBFOLDER, INPUT_ENV_PARAMS_SUBFOLDER, \
     INPUT_LT_UC_COUNTRY_SUBFOLDER, INPUT_FUEL_SOURCES_FOLDER, INPUT_LT_UC_SUBFOLDER, INPUT_LT_UC_OPTIONAL_SUBFOLDER, \
-    OUTPUT_FOLDER_TOY_MODEL, OUTPUT_FOLDER_LT
+    OUTPUT_FOLDER_TOY_MODEL, OUTPUT_FOLDER_LT, OUTPUT_DATA_ANALYSIS_FOLDER
 from src.common.constants.temporal import Timescale
 from src.common.logger import format_relative_path_for_log
 from src.utils.dir_utils import make_dir, uniformize_path_os, get_files_in_dir, get_folders_in_dir
@@ -233,6 +233,22 @@ def get_demand_adder_optional_folder() -> str:
                               )
 
 
+def get_year_and_country_from_demand_adder_file(filename: str) -> tuple[int, str]:
+    """
+    Extract year and country from a filename of the form 'demand-adder_{year}_{country}.csv'.
+    """
+    pattern = r"^demand-adder_(\d{4})_([A-Za-z]+)\.csv$"
+
+    match = re.match(pattern, filename)
+    if not match:
+        raise ValueError(f"Invalid filename: {filename}")
+
+    year = int(match.group(1))
+    country = match.group(2)
+
+    return year, country
+
+
 def get_demand_adder_files(target_year: int, countries: list[str]) -> list[str]:
     """
     Get demand-adder files from input/optional/demand folder
@@ -277,14 +293,16 @@ def get_network_figure(toy_model_output: bool = False, country: str = None, crea
     return f'{output_folder}/network{n_bus_suffix}.png'
 
 
-def get_output_file_suffix(country: str, year: int, climatic_year: int = None, start_horizon: datetime = None) -> str:
+def get_output_file_suffix(year: int, country: str = None, climatic_year: int = None,
+                           start_horizon: datetime = None) -> str:
+    country_prefix = f"{country}_" if country is not None else ''
     cy_suffix = f'_cy{climatic_year}' if climatic_year is not None else ''
     date_suffix = f'_{start_horizon.strftime(DATE_FORMAT_FILE)}' if start_horizon is not None else ''
-    return f'{country}_{year}{cy_suffix}{date_suffix}'
+    return f'{country_prefix}{year}{cy_suffix}{date_suffix}'
 
 
-def get_output_file_named(name: str, extension: str, output_dir: str, country: str, year: int, climatic_year: int,
-                          start_horizon: datetime = None) -> str:
+def get_output_file_named(name: str, extension: str, output_dir: str, year: int, climatic_year: int,
+                          country: str = None, start_horizon: datetime = None) -> str:
     file_suffix = get_output_file_suffix(country=country, year=year, climatic_year=climatic_year,
                                          start_horizon=start_horizon)
     return f'{output_dir}/{name}_{file_suffix}.{extension}'
@@ -329,8 +347,10 @@ def set_full_lt_uc_output_folder(folder_type: str = None, country: str = None, t
 
     if folder_type is not None:
         # data/fig subfolder, possibly with output tag to distinguish it from previous runs
-        if output_tag is not None:
+        if output_tag:
             per_type_subfolder = add_tag_to_output_folder(output_folder=folder_type, tag=output_tag)
+        else:
+            per_type_subfolder = folder_type
         folders_tb_join.append(per_type_subfolder)
     return str(Path(*folders_tb_join))
 
@@ -361,7 +381,8 @@ def get_csv_file_named(name: str, year: int, climatic_year: int, start_horizon: 
     if create_subdir:
         make_dir(full_path=output_folder)
 
-    return get_output_file_named(name, 'csv', output_folder, country, year, climatic_year, start_horizon)
+    return get_output_file_named(name=name, extension='csv', output_dir=output_folder, country=country, year=year,
+                                 climatic_year=climatic_year, start_horizon=start_horizon)
 
 
 def get_json_file_named(name: str, country: str, year: int, climatic_year: int, start_horizon: datetime,
@@ -371,7 +392,8 @@ def get_json_file_named(name: str, country: str, year: int, climatic_year: int, 
     if create_subdir:
         make_dir(full_path=output_folder)
 
-    return get_output_file_named(name, 'json', output_folder, country, year, climatic_year, start_horizon)
+    return get_output_file_named(name=name, extension='json', output_dir=output_folder, country=country, year=year,
+                                 climatic_year=climatic_year, start_horizon=start_horizon)
 
 
 def get_opt_power_file(country: str, year: int, climatic_year: int, start_horizon: datetime,
@@ -401,6 +423,19 @@ def get_marginal_prices_file(country: str, year: int, climatic_year: int, start_
 def get_link_capa_dual_vars_file(year: int, climatic_year: int, start_horizon: datetime, country: str = 'europe',
                                  output_tag: str = None) -> str:
     return get_csv_file_named(name='link-capa-duals', country=country, year=year, climatic_year=climatic_year,
+                              start_horizon=start_horizon, output_tag=output_tag)
+
+
+def get_preprocessed_hydro_levels_file(year: int, climatic_year: int, start_horizon: datetime,
+                                       country: str = 'europe', toy_model_output: bool = False,
+                                       output_tag: str = None) -> str:
+    output_folder = set_full_lt_uc_output_folder(folder_type=OutputFolderNames.data, country=country,
+                                                 toy_model_output=toy_model_output, output_tag=output_tag)
+    make_dir(full_path=output_folder)
+    return os.path.join(output_folder, 'PECD-hydro-weekly-reservoir-min-max-levels_preprocessed.csv')
+def get_custom_const_dual_vars_file(year: int, climatic_year: int, start_horizon: datetime,
+                                    output_tag: str = None) -> str:
+    return get_csv_file_named(name='sumprod-const-duals', year=year, climatic_year=climatic_year,
                               start_horizon=start_horizon, output_tag=output_tag)
 
 

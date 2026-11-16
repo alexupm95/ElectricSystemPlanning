@@ -16,11 +16,13 @@ import pypsa
 import matplotlib.pyplot as plt
 import re
 
-from src.common.constants.countries import set_country_trigram, is_country_trigram
+from src.common.constants.countries import set_country_trigram, is_country_trigram, COUNTRIES_INITIALS
 from src.common.constants.env_dirs import OutputFolderNames
 from src.common.constants.links import set_link_name, get_bus_from_link_name, set_per_origin_bus_links_msg
+from src.common.constants.logs import GW_IN_LOG
 from src.common.constants.optimisation import OptimSolvers, DEFAULT_OPTIM_SOLVER_PARAMS, SolverParams, \
-    OptimPbCharacteristics, OptimPbTypes, CustomConstraintDirection, ZoneAndTempProdSumConstraint, CustomConstraintNames
+    OptimPbCharacteristics, OptimPbTypes, CustomConstraintDirection, ZoneAndTempProdSumConstraint, \
+    CustomConstraintNames, set_sum_of_prod_const_name
 from src.common.constants.prod_types import get_country_from_unit_name, ProdTypeNames, PROD_TYPE_IN_LP, \
     get_prod_type_from_unit_name, set_per_bus_asset_msg
 from src.common.constants.pypsa_params import GEN_UNITS_PYPSA_PARAMS, PypsaOptimVarNames, PYPSA_TO_EXPLICIT_VAR_NAMES, \
@@ -33,11 +35,15 @@ from src.common.long_term_uc_io import (get_network_figure, FigNamesPrefix, get_
                                         set_full_lt_uc_output_folder)
 from src.include.uc_postprocessing import UCSummaryMetrics, UCOptimalSolution
 from src.utils.basic_utils import (lexico_compar_str, rm_elts_with_none_val, rm_elts_in_str, sort_lexicographically,
-                                   format_with_spaces, get_default_values)
+                                   format_with_spaces, get_default_values, dict_to_str)
 from src.utils.dir_utils import make_dir
 from src.utils.pypsa_utils import get_network_obj_value, from_xarray_to_dict
 from src.utils.serializer import array_serializer
-from src.include.hydro_bounds_preprocessor import preprocess_all_hydro_soc_bounds
+from src.include.hydro_bounds_preprocessor import (
+    preprocess_all_hydro_soc_bounds,
+    export_preprocessed_hydro_bounds_to_csv,
+    build_preprocessed_hydro_bounds_df,
+)
 
 
 def is_gen_unit_storage_data(gen_unit_data: dict) -> bool:
@@ -141,15 +147,6 @@ def stack_per_storage_bound_as_xarray(per_gen_bound: Dict[str, np.ndarray], snap
             storage_dim: list(per_gen_bound),
         },
     )
-
-
-def set_sum_of_prod_const_name(const_type: str, temporal_granularity: str, direction: str) -> str:
-    # remove prefix (min/max) from constraint type
-    for prefix in ["min_", "max_"]:
-        if const_type.startswith(prefix):
-            const_type = const_type[len(prefix):]
-
-    return f"{const_type}_{temporal_granularity}_{direction}"
 
 
 def simplify_lp_elt_mapping(mapping: dict[str, str], snapshots: pd.DatetimeIndex, elt_type: str,
@@ -264,6 +261,8 @@ class PypsaModel:
     network: pypsa.Network = None
     uc_summary_metrics: UCSummaryMetrics = None  # UC summary metrics (ENS, nber of failure hours, costs...)
     optim_solver_params: SolverParams = None
+    preprocessed_hydro_soc_min_pu: Dict[str, np.ndarray] = None
+    preprocessed_hydro_soc_max_pu: Dict[str, np.ndarray] = None
     DEFAULT_CARRIER = 'ac'
 
     def init_pypsa_network(self, date_idx: pd.Index, date_range: pd.DatetimeIndex = None):
@@ -317,6 +316,8 @@ class PypsaModel:
 
                 # case of storage units, identified via the presence of max_hours param
                 if is_gen_unit_storage_data(gen_unit_data=pypsa_gen_unit_dict):
+                    energy_capa = (pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.power_capa]
+                                   * pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.max_hours])
                     if pypsa_gen_unit_dict.get(GEN_UNITS_PYPSA_PARAMS.soc_init, None) is None:
                         # initial SoC fixed to 80% statically here
                         if agg_info_over_cases:
@@ -324,9 +325,11 @@ class PypsaModel:
                         else:
                             logging.info(f'Default value set for {pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.name]} '
                                          f'init. SOC as {int(100 * default_init_soc_pu)}% of energy storage capa.')
-                        init_soc = (pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.power_capa]
-                                    * pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.max_hours] * 0.8)
+                        init_soc = 0.8 * energy_capa
                         pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.soc_init] = init_soc
+                    else:
+                        # value set in European input JSON file to be modified is in per-unit of energy capa.
+                        pypsa_gen_unit_dict[GEN_UNITS_PYPSA_PARAMS.soc_init] *= energy_capa
                     self.network.add('StorageUnit', bus=f'{country_bus_name}', **pypsa_gen_unit_dict)
                 else:
                     self.network.add('Generator', bus=f'{country_bus_name}', **pypsa_gen_unit_dict)
@@ -465,9 +468,15 @@ class PypsaModel:
             - (optional) name: of the constraint. Default: None
         """
         # TODO: make this method functional in the case of monthly const.
+        if set(prod_sum_const.countries) == set(COUNTRIES_INITIALS):  # Eur. constraint
+            countries_suffix = "_eur"
+        else:
+            countries_initials = [COUNTRIES_INITIALS[country] for country in prod_sum_const.countries]
+            countries_suffix = f"_{'-'.join(countries_initials)}"
+
         const_name = set_sum_of_prod_const_name(const_type=prod_sum_const.type,
                                                 temporal_granularity=prod_sum_const.temporal_granularity,
-                                                direction=prod_sum_const.direction)
+                                                direction=prod_sum_const.direction, countries_suffix=countries_suffix)
         logging.info(f'Add custom sum of prod constraints {const_name}')
         # countries selected for this constraint - using bus names (country trigrams) in PyPSA
         selec_countries = [get_country_bus_name(country=elt) for elt in prod_sum_const.countries]
@@ -578,6 +587,9 @@ class PypsaModel:
                 n_ts=n_ts
             )
 
+        self.preprocessed_hydro_soc_min_pu = soc_min_pu
+        self.preprocessed_hydro_soc_max_pu = soc_max_pu
+
         # from PU to ABSOLUTE values of min/max SoC (ABSOLUTE values have to be used in PyPSA)
         soc_min = {asset_name: energy_capa[asset_name] * bound_pu for asset_name, bound_pu in soc_min_pu.items()}
         soc_max = {asset_name: energy_capa[asset_name] * bound_pu for asset_name, bound_pu in soc_max_pu.items()}
@@ -615,6 +627,23 @@ class PypsaModel:
                                                           storage_dim=storage_dim)
         self.network.model.add_constraints(hydro_soc_var_sel >= soc_min_array, name=CustomConstraintNames.hydro_soc_min)
         self.network.model.add_constraints(hydro_soc_var_sel <= soc_max_array, name=CustomConstraintNames.hydro_soc_max)
+
+    def save_preprocessed_hydro_bounds_to_csv(self, output_filepath: str,
+                                              decimal_digits: int = 3) -> Optional[pd.DataFrame]:
+        """
+        Export preprocessed weekly hydro reservoir bounds to CSV file with the same format as input.
+        """
+        if self.preprocessed_hydro_soc_min_pu is None:
+            logging.warning("No preprocessed hydro bounds stored on PypsaModel to export.")
+            return None
+
+        return export_preprocessed_hydro_bounds_to_csv(
+            network=self.network,
+            soc_min_processed_pu=self.preprocessed_hydro_soc_min_pu,
+            soc_max_processed_pu=self.preprocessed_hydro_soc_max_pu,
+            output_filepath=output_filepath,
+            decimal_digits=decimal_digits
+        )
 
     def add_hydro_extreme_gen_constraint(self, generation_min: Dict[str, np.ndarray],
                                          generation_max: Dict[str, np.ndarray], power_capa: Dict[str, float],
@@ -694,6 +723,41 @@ class PypsaModel:
                                                                      storage_dim=storage_dim)
             self.network.model.add_constraints(hydro_gen_var_sel >= generation_min_array, name="hydro_gen_min")
             self.network.model.add_constraints(hydro_gen_var_sel <= generation_max_array, name="hydro_gen_max")
+
+    def network_summary_for_log(self) -> str:
+        """
+        Log the main characteristics of a PyPSA network.
+        """
+        log_msg = "=== Network summary ==="
+        n = self.network
+        # Snapshots
+        log_msg += f"\nSnapshots (time-slots): {len(n.snapshots)} ({n.snapshots.min()} -> {n.snapshots.max()})"
+        # Components
+        log_msg += f"\nBuses: {len(n.buses)}"
+        log_msg += f"\nGenerators: {len(n.generators)}"
+        log_msg += f"\nLoads: {len(n.loads)}"
+        log_msg += f"\nStorage units: {len(n.storage_units)}"
+        log_msg += f"\nLinks: {len(n.links)}"
+        # Technologies
+        if "carrier" in n.generators.columns:
+            per_carrier_generators_capa = (
+                n.generators.groupby("carrier").p_nom.sum().sort_values(ascending=False).to_dict())
+            if GW_IN_LOG:
+                capa_unit = "GW"
+                per_carrier_generators_capa = \
+                    {elt_carrier: capa / 1e3 for elt_carrier, capa in per_carrier_generators_capa.items()}
+            else:
+                capa_unit = "MW"
+            # values associated to carrier "ac" at this stage are corresponding to failure fictive assets
+            per_carrier_generators_capa["failure"] = per_carrier_generators_capa.pop("ac")
+            total_capa = sum(per_carrier_generators_capa.values())
+            total_capa_wo_failure = total_capa - per_carrier_generators_capa["failure"]
+            log_msg += (f"\nGenerator capacities (in {capa_unit}) by carrier:"
+                        f"\n{dict_to_str(d=per_carrier_generators_capa, nbers_with_spaces=True, decimals=2)}\n-> total "
+                        f"of {format_with_spaces(number=total_capa, decimals=2)} "
+                        f"(resp. {format_with_spaces(number=total_capa_wo_failure, decimals=2)} without failure units)")
+        log_msg += "\n" + 21 * "="
+        return log_msg
 
     def get_n_time_slots(self) -> int:
         return len(self.network.snapshots)
@@ -875,6 +939,7 @@ class PypsaModel:
         # and dual variables - some of them "entering" into Linopy framework
         uc_opt_solution.get_sde_dual_var_opt(network=self.network)
         uc_opt_solution.get_link_capa_dual_var_opt(network=self.network)
+        uc_opt_solution.get_custom_const_dual_var_opt(network=self.network)
         return uc_opt_solution
 
     def get_opt_value(self, pypsa_resol_status: str) -> float:
