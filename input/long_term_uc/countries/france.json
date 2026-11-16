@@ -7,7 +7,6 @@
       "wind_onshore",
       "wind_offshore",
       "hydro_reservoir",
-      "hydro_run_of_river",
       "hydro_pump_storage_closed_loop",
       "hydro_pump_storage_open_loop",
       "solar_pv"

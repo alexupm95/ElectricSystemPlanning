@@ -6,15 +6,11 @@
   ],
   "selected_target_year": 2033,
   "mode": "europe",
-<<<<<<< HEAD
-  "team": "france",
-=======
   "team": "europe_to_be_defined",
->>>>>>> 97a1a30b71f6b08328da7848bcd118c420023779
   "uc_period_start": "1900/1/1",
-  "uc_period_end": "1901/1/1",
-  "failure_power_capa": 10000000000.0,
-  "failure_penalty": 100000.0,
+  "uc_period_end": "1900/1/20",
+  "failure_power_capa": 1e10,
+  "failure_penalty": 1e5,
   "interco_capas_tb_overwritten": {
     "france2poland": 0,
     "france2scandinavia": 0,
@@ -39,12 +35,5 @@
     "scandinavia2italy": 0,
     "scandinavia2iberian-peninsula": 0,
     "germany2italy": 0
-  },
-  "output_tag": "preliminar",
-  "add_date_tag_to_output": false,
-  "plot_stock_soc_in_pu": false,
-  "save_link_capa_dual_vars": true,
-  "plot_link_capa_saturation": false,
-  "save_custom_const_dual_vars": true,
-  "add_run_idx_tag_to_output": true
+  }
 }
